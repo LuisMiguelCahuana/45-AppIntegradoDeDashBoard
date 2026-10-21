@@ -13,7 +13,7 @@ st.set_page_config(
 st.sidebar.title("📊 Sistema de reportes")
 seleccion = st.sidebar.radio(
     "Seleccionar dashboard",
-    ["📈 Reportes de Producción", "🚙 Reportes de Kilometraje"],
+    ["📈 Reportes de Producción", "🚙 Reportes de km_perdidas"],
     key="dashboard_seleccionado",
 )
 st.sidebar.divider()
