@@ -1,6 +1,3 @@
-import importlib
-import sys
-
 import streamlit as st
 
 st.set_page_config(
@@ -18,15 +15,11 @@ seleccion = st.sidebar.radio(
 )
 st.sidebar.divider()
 
-# Streamlit vuelve a ejecutar app.py al cambiar el radio button, pero Python
-# conserva los módulos importados en caché. Recargar el módulo seleccionado
-# hace que se vuelvan a dibujar todos sus widgets y gráficos en cada cambio.
+# El código visual se ejecuta al seleccionar cada dashboard, pero los datos
+# ya descargados permanecen en st.cache_data y no se vuelven a solicitar.
 if seleccion == "📈 Reportes de Producción":
-    modulo = "produccion"
+    import produccion
+    produccion.render()
 else:
-    modulo = "kilometraje"
-
-if modulo in sys.modules:
-    importlib.reload(sys.modules[modulo])
-else:
-    importlib.import_module(modulo)
+    import kilometraje
+    kilometraje.render()
