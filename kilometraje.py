@@ -100,6 +100,16 @@ def load_records():
         if rename:
             df = df.rename(columns=rename)
 
+    # La columna V (posición 22) contiene Contrato.
+    # Conservar el nombre real del encabezado si existe y admitir variantes.
+    if "Contrato" not in df.columns:
+        for nombre in df.columns:
+            if str(nombre).strip().casefold() == "contrato":
+                df = df.rename(columns={nombre: "Contrato"})
+                break
+    if "Contrato" not in df.columns and len(df.columns) >= 22:
+        df["Contrato"] = df.iloc[:, 21]
+
     # Normalize common variations in header labels.
     aliases = {
         "Fecha": ["fecha", "FECHA"],
@@ -123,7 +133,9 @@ def load_records():
         if col not in df.columns:
             df[col] = ""
 
-    df = df[expected].copy()
+    if "Contrato" not in df.columns:
+        df["Contrato"] = ""
+    df = df[expected + ["Contrato"]].copy()
 
     # La columna Fecha puede contener formatos mezclados en Google Sheets
     # (por ejemplo, 2026-10-06 y 13/10/2026). Parsear la columna de una sola vez
@@ -146,7 +158,7 @@ def load_records():
             df[col].astype(str).str.replace(",", "", regex=False).str.strip(),
             errors="coerce",
         )
-    for col in ["Placa", "Nom Personal", "Unidad Negocio", "Servicio Electrico", "CECO", "Cuadrilla", "Item"]:
+    for col in ["Placa", "Nom Personal", "Unidad Negocio", "Servicio Electrico", "CECO", "Cuadrilla", "Item", "Contrato"]:
         df[col] = df[col].fillna("").astype(str).str.strip()
     df["Placa"] = df["Placa"].str.upper().str.replace(" ", "", regex=False)
     df["Recorrido válido"] = (
@@ -224,6 +236,8 @@ def render():
             st.warning("La fecha inicial es posterior a la fecha final. Se intercambiarán para filtrar.")
             start_date, end_date = end_date, start_date
 
+        contrato_values = ["Todos"] + sorted(x for x in raw["Contrato"].unique() if x)
+        selected_contrato = st.selectbox("Contrato", contrato_values, key="filtro_contrato_km")
         uunn_values = ["Todas"] + sorted(x for x in raw["Unidad Negocio"].unique() if x)
         selected_uunn = st.selectbox("Unidad de negocio", uunn_values)
         plate_values = ["Todas"] + sorted(x for x in raw["Placa"].unique() if x)
@@ -241,6 +255,8 @@ def render():
     start_ts = pd.Timestamp(start_date)
     end_ts = pd.Timestamp(end_date) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
     df = raw[(raw["Fecha"] >= start_ts) & (raw["Fecha"] <= end_ts)].copy()
+    if selected_contrato != "Todos":
+        df = df[df["Contrato"] == selected_contrato]
     if selected_uunn != "Todas":
         df = df[df["Unidad Negocio"] == selected_uunn]
     if selected_plate != "Todas":
