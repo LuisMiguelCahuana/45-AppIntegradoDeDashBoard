@@ -10,7 +10,7 @@ st.set_page_config(
 st.sidebar.title("📊 Sistema de reportes")
 seleccion = st.sidebar.radio(
     "Seleccionar dashboard",
-    ["📈 Reportes de Producción", "🚙 Reportes de km_perdidas"],
+    ["📈 Reportes de Producción", "🚙 Reportes de km_perdidas", "🚚 Reportes de km_distribucion"],
     key="dashboard_seleccionado",
 )
 st.sidebar.divider()
@@ -20,6 +20,9 @@ st.sidebar.divider()
 if seleccion == "📈 Reportes de Producción":
     import produccion
     produccion.render()
-else:
+elif seleccion == "🚙 Reportes de km_perdidas":
     import kilometraje
     kilometraje.render()
+else:
+    import distribucion
+    distribucion.render()
