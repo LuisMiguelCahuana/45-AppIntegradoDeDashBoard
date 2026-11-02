@@ -10,19 +10,25 @@ st.set_page_config(
 st.sidebar.title("📊 Sistema de reportes")
 seleccion = st.sidebar.radio(
     "Seleccionar dashboard",
-    ["📈 Reportes de Producción", "🚙 Reportes de km_perdidas", "🚚 Reportes de km_distribucion"],
+    [
+        "📈 Reportes de Producción",
+        "🚙 Reportes de km_perdidas",
+        "🚚 Reportes de km_distribucion",
+        "🧩 Incidencia y Recurso",
+    ],
     key="dashboard_seleccionado",
 )
 st.sidebar.divider()
 
-# El código visual se ejecuta al seleccionar cada dashboard, pero los datos
-# ya descargados permanecen en st.cache_data y no se vuelven a solicitar.
 if seleccion == "📈 Reportes de Producción":
     import produccion
     produccion.render()
 elif seleccion == "🚙 Reportes de km_perdidas":
     import kilometraje
     kilometraje.render()
-else:
+elif seleccion == "🚚 Reportes de km_distribucion":
     import distribucion
     distribucion.render()
+else:
+    import incidencia_recurso
+    incidencia_recurso.render()
