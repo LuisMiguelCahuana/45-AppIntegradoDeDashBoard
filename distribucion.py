@@ -231,14 +231,45 @@ def render():
             st.warning("La fecha inicial es posterior a la fecha final. Se intercambiarán para filtrar.")
             start_date, end_date = end_date, start_date
 
-        contrato_values = ["Todos"] + sorted(x for x in raw["Contrato"].unique() if x)
-        selected_contrato = st.selectbox("Contrato", contrato_values, key="dist_filtro_contrato_km")
-        uunn_values = ["Todas"] + sorted(x for x in raw["Unidad Negocio"].unique() if x)
-        selected_uunn = st.selectbox("Unidad de negocio", uunn_values, key="dist_filtro_uunn")
+        # Filtros dependientes: Contrato -> Unidad de negocio -> Servicio eléctrico.
+        # Al cambiar un filtro padre, se reinician automáticamente los filtros hijos.
+        def _reset_dist_uunn_y_servicio():
+            st.session_state["dist_filtro_uunn"] = "Todas"
+            st.session_state["dist_filtro_servicio"] = "Todos"
+
+        def _reset_dist_servicio():
+            st.session_state["dist_filtro_servicio"] = "Todos"
+
+        contrato_values = ["Todos"] + sorted(
+            x for x in raw["Contrato"].dropna().astype(str).str.strip().unique() if x
+        )
+        selected_contrato = st.selectbox(
+            "Contrato", contrato_values,
+            key="dist_filtro_contrato_km",
+            on_change=_reset_dist_uunn_y_servicio,
+        )
+
+        datos_contrato = raw if selected_contrato == "Todos" else raw[raw["Contrato"] == selected_contrato]
+        uunn_values = ["Todas"] + sorted(
+            x for x in datos_contrato["Unidad Negocio"].dropna().astype(str).str.strip().unique() if x
+        )
+        selected_uunn = st.selectbox(
+            "Unidad de negocio", uunn_values,
+            key="dist_filtro_uunn",
+            on_change=_reset_dist_servicio,
+        )
+
+        datos_uunn = datos_contrato if selected_uunn == "Todas" else datos_contrato[datos_contrato["Unidad Negocio"] == selected_uunn]
+        service_values = ["Todos"] + sorted(
+            x for x in datos_uunn["Servicio Electrico"].dropna().astype(str).str.strip().unique() if x
+        )
+        selected_service = st.selectbox(
+            "Servicio eléctrico", service_values,
+            key="dist_filtro_servicio",
+        )
+
         plate_values = ["Todas"] + sorted(x for x in raw["Placa"].unique() if x)
         selected_plate = st.selectbox("Placa", plate_values, key="dist_filtro_placa")
-        service_values = ["Todos"] + sorted(x for x in raw["Servicio Electrico"].unique() if x)
-        selected_service = st.selectbox("Servicio eléctrico", service_values, key="dist_filtro_servicio")
         st.divider()
         st.caption("Los datos se mantienen en caché durante 30 minutos. Puedes usar «Actualizar datos» para forzar una nueva lectura.")
         if st.button("🔄 Actualizar datos", use_container_width=True, key="dist_refrescar"):
