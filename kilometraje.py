@@ -273,8 +273,6 @@ def render():
             key="filtro_servicio_km",
         )
 
-        plate_values = ["Todas"] + sorted(x for x in raw["Placa"].unique() if x)
-        selected_plate = st.selectbox("Placa", plate_values, key="filtro_placa_km")
         st.divider()
         st.caption("Los datos se mantienen en caché durante 30 minutos. Puedes usar «Actualizar datos» para forzar una nueva lectura.")
         if st.button("🔄 Actualizar datos", use_container_width=True):
@@ -290,8 +288,6 @@ def render():
         df = df[df["Contrato"] == selected_contrato]
     if selected_uunn != "Todas":
         df = df[df["Unidad Negocio"] == selected_uunn]
-    if selected_plate != "Todas":
-        df = df[df["Placa"] == selected_plate]
     if selected_service != "Todos":
         df = df[df["Servicio Electrico"] == selected_service]
 
@@ -323,9 +319,10 @@ def render():
     daily_average = float(km_total / placa_dias) if placa_dias > 0 else 0.0
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Kilómetros recorridos", f"{km_total:,.0f} km")
-    m2.metric("Días trabajados", f"{days_worked:,.0f}")
-    m3.metric("Placas con actividad", f"{plates_active:,}")
+    km_total_entero = int(round(km_total))
+    m1.metric("Kilómetros recorridos", f"{km_total_entero:,} km")
+    m2.metric("Días trabajados", f"{int(days_worked):,}")
+    m3.metric("Placas con actividad", f"{int(plates_active):,}")
     m4.metric("Promedio por placa/día", f"{daily_average:,.1f} km")
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
