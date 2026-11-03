@@ -201,14 +201,12 @@ def render():
     vehiculo = _filtrar_base(datos["Vehiculo"], contrato, uunn)
     material = _filtrar_base(datos["Material"], contrato, uunn)
 
-    total, abiertos, faltante = _metricas_generales(personal, vehiculo, material)
+    total, _, _ = _metricas_generales(personal, vehiculo, material)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Registros de incidencias", f"{total:,}")
-    c2.metric("Registros abiertos*", f"{abiertos:,}")
-    c3.metric("Personal registrado", f"{len(personal):,}")
-    c4.metric("Cantidad de material faltante", f"{faltante:,.2f}")
-
-    st.caption("*Abierto se calcula según el texto de ESTADO: excluye cerrado, resuelto, repuesto y atendido. Revisar si tu hoja utiliza otros estados.")
+    c2.metric("Registros de Personal", f"{len(personal):,}")
+    c3.metric("Registros de Vehículos", f"{len(vehiculo):,}")
+    c4.metric("Registros de Materiales, equipos y herramientas", f"{len(material):,}")
 
     tab_resumen, tab_personal, tab_vehiculo, tab_material = st.tabs([
         "📊 Resumen gerencial", "👥 Personal", "🚙 Vehículos", "🧰 Materiales y equipos"
