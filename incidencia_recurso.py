@@ -118,6 +118,25 @@ def _estado_abierto(df):
     estado = df["ESTADO"].fillna("").astype(str).str.strip().str.upper()
     return ~estado.isin(cerrados) & estado.ne("")
 
+def _porcentajes_estado(df):
+    """Calcula ATENDIDO y PENDIENTE sobre el total de registros filtrados."""
+    total = len(df)
+    if total == 0:
+        return 0.0, 0.0
+
+    estado = df["ESTADO"].fillna("").astype(str).str.strip().str.upper()
+    atendidos = int(estado.eq("ATENDIDO").sum())
+    pendientes = int(estado.eq("PENDIENTE").sum())
+    return atendidos / total * 100, pendientes / total * 100
+
+
+def _mostrar_metricas_estado(df):
+    """Muestra las tarjetas porcentuales de atención para una pestaña."""
+    porcentaje_atendido, porcentaje_pendiente = _porcentajes_estado(df)
+    c1, c2 = st.columns(2)
+    c1.metric("ATENDIDO", f"{porcentaje_atendido:.1f}%")
+    c2.metric("PENDIENTE", f"{porcentaje_pendiente:.1f}%")
+
 def _metricas_generales(personal, vehiculo, material):
     total = len(personal) + len(vehiculo) + len(material)
     abiertos = int(_estado_abierto(personal).sum()) + int(_estado_abierto(vehiculo).sum()) + int(_estado_abierto(material).sum())
@@ -249,10 +268,7 @@ def render():
 
     with tab_personal:
         st.subheader("Control de incidencias de personal")
-        p1, p2, p3 = st.columns(3)
-        p1.metric("Registros", len(personal))
-        p2.metric("Con fecha de salida", int(personal["FECHA_SALIDA"].notna().sum()))
-        p3.metric("Con fecha de incorporación", int(personal["FECHA_INCORPRACION / NUEVO PERSONAL"].notna().sum()))
+        _mostrar_metricas_estado(personal)
         a, b = st.columns(2)
         with a:
             _grafico_barras(personal, "TIPO_INCIDENCIA", "Personal por tipo de incidencia", "ir_p_tipo")
@@ -262,10 +278,7 @@ def render():
 
     with tab_vehiculo:
         st.subheader("Control de incidencias vehiculares")
-        v1, v2, v3 = st.columns(3)
-        v1.metric("Vehículos reportados", len(vehiculo))
-        v2.metric("Con fecha de reposición", int(vehiculo["FECHA_REPOSICION"].notna().sum()))
-        v3.metric("Sin fecha de reposición", int(vehiculo["FECHA_REPOSICION"].isna().sum()))
+        _mostrar_metricas_estado(vehiculo)
         a, b = st.columns(2)
         with a:
             _grafico_barras(vehiculo, "TIPO_INCIDENCIA", "Vehículos por tipo de incidencia", "ir_v_tipo")
@@ -276,10 +289,7 @@ def render():
 
     with tab_material:
         st.subheader("Control de materiales, equipos y herramientas")
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Registros", len(material))
-        m2.metric("Cantidad faltante", f"{material['CANTIDAD_FALTANTE'].sum():,.2f}")
-        m3.metric("Materiales / equipos distintos", material["MATERIAL/EQUPO Y HERRAMIENTA"].replace("", pd.NA).nunique())
+        _mostrar_metricas_estado(material)
         a, b = st.columns(2)
         with a:
             _grafico_barras(material, "TIPO_INCIDENCIA", "Materiales por tipo de incidencia", "ir_m_tipo")
