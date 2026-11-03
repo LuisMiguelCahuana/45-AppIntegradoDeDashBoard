@@ -1,6 +1,7 @@
 import io
 import re
 import calendar
+import time
 from datetime import datetime
 
 import pandas as pd
@@ -45,6 +46,55 @@ ESTILO_ETIQUETA_COSTO = dict(
     size=11,
     family="Arial, sans-serif",
 )
+
+
+@st.cache_resource
+def estado_cache_sheets():
+    """Conserva la última lectura correcta mientras viva el proceso."""
+    return {"valores": None, "actualizado": None}
+
+
+def es_error_cuota_google(error):
+    texto = str(error).lower()
+    return (
+        "429" in texto
+        or "quota exceeded" in texto
+        or "read requests per minute" in texto
+        or "rate limit" in texto
+    )
+
+
+def leer_google_sheets_con_reintentos():
+    """
+    Lee la hoja con reintentos limitados ante cuotas temporales.
+    Si Google mantiene el límite, reutiliza la última lectura correcta.
+    """
+    estado = estado_cache_sheets()
+    ultimo_error = None
+
+    for espera in (0, 5, 12):
+        if espera:
+            time.sleep(espera)
+        try:
+            valores = leer_google_sheets_con_reintentos()
+            if valores:
+                estado["valores"] = valores
+                estado["actualizado"] = datetime.now()
+            return valores
+        except Exception as error:
+            ultimo_error = error
+            if not es_error_cuota_google(error):
+                raise
+
+    # No se interrumpe el dashboard si ya existe una lectura correcta.
+    if estado.get("valores"):
+        return estado["valores"]
+
+    raise RuntimeError(
+        "Google Sheets está limitando temporalmente las lecturas. "
+        "No se pudo obtener una primera copia de los datos. "
+        "Espera unos minutos y vuelve a intentarlo."
+    ) from ultimo_error
 
 
 # ============================================================
@@ -313,7 +363,16 @@ def render():
     try:
         df = cargar_datos()
     except Exception as e:
-        st.error(f"No se pudo leer Google Sheets: {e}")
+        mensaje = str(e)
+        if es_error_cuota_google(e) or "limitando temporalmente" in mensaje.lower():
+            st.warning(
+                "Los datos de Google Sheets no están disponibles temporalmente "
+                "por límite de solicitudes. El dashboard reutilizará la última "
+                "lectura correcta cuando exista. Espera unos minutos antes de "
+                "volver a actualizar."
+            )
+        else:
+            st.error(f"No se pudo cargar el reporte de producción: {mensaje}")
         st.stop()
 
     if df.empty:
