@@ -284,7 +284,41 @@ def render():
             _grafico_barras(vehiculo, "TIPO_INCIDENCIA", "Vehículos por tipo de incidencia", "ir_v_tipo")
         with b:
             _grafico_barras(vehiculo, "ESTADO", "Vehículos por estado", "ir_v_estado")
-        _grafico_barras(vehiculo, "PLACA", "Incidencias por placa", "ir_v_placa")
+        # Mostrar el gráfico de placas en bloques de 8 categorías para evitar
+        # que las columnas y etiquetas se compriman cuando existen muchos vehículos.
+        placas_resumen = (
+            vehiculo["PLACA"]
+            .replace("", "Sin dato")
+            .value_counts()
+            .rename_axis("PLACA")
+            .reset_index(name="Registros")
+        )
+        if not placas_resumen.empty:
+            tamano_bloque = 8
+            total_bloques = (len(placas_resumen) + tamano_bloque - 1) // tamano_bloque
+            opciones_bloques = [
+                f"Placas {i * tamano_bloque + 1}–{min((i + 1) * tamano_bloque, len(placas_resumen))}"
+                for i in range(total_bloques)
+            ]
+            bloque_seleccionado = st.selectbox(
+                "Mostrar placas (8 por grupo)",
+                opciones_bloques,
+                key="ir_v_placa_bloque",
+            )
+            indice_bloque = opciones_bloques.index(bloque_seleccionado)
+            inicio = indice_bloque * tamano_bloque
+            placas_visibles = placas_resumen.iloc[inicio:inicio + tamano_bloque]["PLACA"].tolist()
+            vehiculo_placas = vehiculo.copy()
+            vehiculo_placas["PLACA"] = vehiculo_placas["PLACA"].replace("", "Sin dato")
+            vehiculo_placas = vehiculo_placas[vehiculo_placas["PLACA"].isin(placas_visibles)]
+            _grafico_barras(
+                vehiculo_placas,
+                "PLACA",
+                "Incidencias por placa",
+                "ir_v_placa",
+            )
+        else:
+            st.info("No hay placas registradas para mostrar.")
         st.dataframe(vehiculo, use_container_width=True, hide_index=True)
 
     with tab_material:
