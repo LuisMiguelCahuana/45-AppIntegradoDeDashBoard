@@ -76,7 +76,7 @@ def leer_google_sheets_con_reintentos():
         if espera:
             time.sleep(espera)
         try:
-            valores = leer_google_sheets_con_reintentos()
+            valores = read_sheet(SPREADSHEET_ID, HOJA_ORIGEN)
             if valores:
                 estado["valores"] = valores
                 estado["actualizado"] = datetime.now()
@@ -110,7 +110,7 @@ def cargar_datos():
             "Falta configurar gcp_service_account en los Secrets de Streamlit."
         )
 
-    valores = read_sheet(SPREADSHEET_ID, HOJA_ORIGEN)
+    valores = leer_google_sheets_con_reintentos()
 
     if not valores:
         raise ValueError(f"La hoja {HOJA_ORIGEN} está vacía.")
@@ -604,80 +604,11 @@ def render():
     # (El selector "Reporte que desea visualizar" fue eliminado)
     # ============================================================
 
-    # REPORTE 2: PRODUCCIÓN POR CUADRILLA
+    # REPORTE: MONTO POR CUADRILLA
+    # Se retiró el reporte duplicado de producción por cuadrilla.
     # ============================================================
 
-    st.divider()
-    st.subheader("📊 Producción por cuadrilla")
 
-    por_cuadrilla = (
-        df_filtrado.groupby("cuadrilla")
-        .agg(
-            registros=("cantidad", "size"),
-            cantidad=("cantidad", "sum"),
-            costo_total=("costo_total", "sum"),
-            dias_trabajados=(
-                "_fecha_dt",
-                lambda x: x.dropna().dt.normalize().nunique(),
-            ),
-        )
-        .reset_index()
-        .sort_values("cantidad", ascending=False)
-    )
-
-    pesta_grafico, pesta_tabla = st.tabs(["📊 Gráfico", "📋 Tabla"])
-
-    with pesta_grafico:
-        fig_cuadrilla = px.bar(
-            por_cuadrilla,
-            x="cuadrilla",
-            y="cantidad",
-            color_discrete_sequence=["#2ca02c"],
-            text=por_cuadrilla["costo_total"].apply(etiqueta_costo),
-            custom_data=["costo_total", "dias_trabajados"],
-            title="Cantidad producida por cuadrilla (etiqueta = costo total S/)",
-        )
-
-        fig_cuadrilla.update_traces(
-            hovertemplate=(
-                "Cuadrilla: %{x}<br>"
-                "Cantidad: %{y:,.0f}<br>"
-                "Costo total: S/ %{customdata[0]:,.2f}<br>"
-                "Días trabajados: %{customdata[1]}"
-                "<extra></extra>"
-            ),
-            **estilo_barra_con_costo(por_cuadrilla["cantidad"]),
-        )
-
-        fig_cuadrilla.update_layout(
-            xaxis_title="Cuadrilla / Técnico",
-            yaxis_title="Cantidad",
-            showlegend=False,
-        )
-
-        fijar_visibilidad_texto(fig_cuadrilla)
-        mostrar_grafico(fig_cuadrilla)
-
-    with pesta_tabla:
-        por_cuadrilla_mostrar = por_cuadrilla.copy()
-        por_cuadrilla_mostrar["costo_total"] = (
-            por_cuadrilla_mostrar["costo_total"].round(2)
-        )
-
-        st.dataframe(
-            por_cuadrilla_mostrar,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        descargar_excel(
-            por_cuadrilla_mostrar,
-            f"produccion_por_cuadrilla_{datetime.now().strftime('%Y%m%d')}.xlsx",
-        )
-
-
-    # ============================================================
-    # REPORTE 3: MONTO POR CUADRILLA
     # ============================================================
 
     st.divider()
@@ -689,10 +620,18 @@ def render():
             monto=("costo_total", "sum"),
             registros=("cantidad", "size"),
             cantidad=("cantidad", "sum"),
+            dias_trabajados=(
+                "_fecha_dt",
+                lambda x: x.dropna().dt.normalize().nunique(),
+            ),
         )
         .reset_index()
         .sort_values("monto", ascending=False)
     )
+
+    monto_cuadrilla = monto_cuadrilla[
+        ["cuadrilla", "monto", "registros", "cantidad", "dias_trabajados"]
+    ]
 
     pesta_grafico, pesta_tabla = st.tabs(["📊 Gráfico", "📋 Tabla"])
 
