@@ -41,7 +41,7 @@ METAS = {
     "ITEM IV URBANO": 450000.00
 }
 
-def render():
+def render_estilos():
     # ============================================================
     # ESTILOS
     # ============================================================
@@ -275,38 +275,62 @@ def conectar_google():
 # CARGAR REGISTROS
 # ============================================================
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def cargar_registros():
-
+    """Lee únicamente las columnas usadas por este dashboard."""
     client = conectar_google()
+    hoja = client.open_by_key(ID_REGISTRO).worksheet(HOJA_REGISTRO)
 
-    spreadsheet = client.open_by_key(
-        ID_REGISTRO
-    )
+    encabezados = [str(c).strip() for c in hoja.row_values(1)]
+    requeridas = [
+        "ITEM",
+        "FECHA_FIN",
+        "MONTO_PRE_VALORIZADO",
+        "UNIDAD_DE_NEGOCIO",
+        "SERVICIO_ELECTRICO",
+    ]
 
-    hoja = spreadsheet.worksheet(
-        HOJA_REGISTRO
-    )
+    faltantes = [c for c in requeridas if c not in encabezados]
+    if faltantes:
+        raise ValueError("Faltan columnas en REGISTROS: " + ", ".join(faltantes))
 
-    data = hoja.get_all_values()
+    def numero_a_columna(numero):
+        letras = ""
+        while numero:
+            numero, resto = divmod(numero - 1, 26)
+            letras = chr(65 + resto) + letras
+        return letras
 
-    if len(data) <= 1:
-        return pd.DataFrame()
+    rangos = []
+    for nombre in requeridas:
+        letra = numero_a_columna(encabezados.index(nombre) + 1)
+        rangos.append(f"{letra}2:{letra}")
 
-    encabezados = data[0]
-    filas = data[1:]
+    # Una sola petición para las cinco columnas, en vez de descargar toda la hoja.
+    columnas = hoja.batch_get(rangos, value_render_option="FORMATTED_VALUE")
+    datos = {}
+    max_filas = max((len(col) for col in columnas), default=0)
 
-    return pd.DataFrame(
-        filas,
-        columns=encabezados
-    )
+    for nombre, columna in zip(requeridas, columnas):
+        lista = [fila[0] if fila else "" for fila in columna]
+        lista.extend([""] * (max_filas - len(lista)))
+        datos[nombre] = lista
 
+    df = pd.DataFrame(datos)
+    if df.empty:
+        return df
+
+    return df.loc[
+        df[requeridas].astype(str).apply(
+            lambda fila: any(v.strip() for v in fila), axis=1
+        )
+    ].reset_index(drop=True)
 
 # ============================================================
 # CARGAR CECO
 # ============================================================
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def cargar_ceco():
 
     client = conectar_google()
@@ -319,12 +343,11 @@ def cargar_ceco():
         HOJA_CECO
     )
 
-    data = hoja.get_all_values()
+    # BD_CECO solo requiere las columnas A:F.
+    filas = hoja.get("A2:F", value_render_option="FORMATTED_VALUE")
 
-    if len(data) <= 1:
+    if not filas:
         return pd.DataFrame()
-
-    filas = data[1:]
 
     df = pd.DataFrame(
         filas,
@@ -495,907 +518,649 @@ def grafico_vacio(mensaje):
     return fig
 
 
-# ============================================================
-# CARGA DE DATOS
-# ============================================================
+def render():
+    render_estilos()
 
-try:
+    # ============================================================
+    # CARGA DE DATOS
+    # ============================================================
 
-    with st.spinner("Cargando información..."):
+    try:
 
-        registros = cargar_registros()
-        registros.columns = registros.columns.astype(str).str.strip()
-        ceco = cargar_ceco()
+        with st.spinner("Cargando información..."):
 
-except Exception as e:
+            registros = cargar_registros()
+            registros.columns = registros.columns.astype(str).str.strip()
+            ceco = cargar_ceco()
 
-    st.error(
-        "No fue posible conectar con Google Sheets."
-    )
+    except Exception as e:
 
-    st.code(
-        str(e)
-    )
+        st.error(
+            "No fue posible conectar con Google Sheets."
+        )
 
-    st.stop()
+        st.code(
+            str(e)
+        )
 
-
-# ============================================================
-# VALIDAR REGISTROS
-# ============================================================
-
-if registros.empty:
-
-    st.warning(
-        "La hoja REGISTROS no contiene información."
-    )
-
-    st.stop()
+        st.stop()
 
 
-# ============================================================
-# VALIDAR COLUMNAS MÍNIMAS
-# ============================================================
+    # ============================================================
+    # VALIDAR REGISTROS
+    # ============================================================
 
-columnas_requeridas = [
-    "ITEM",
-    "FECHA_FIN",
-    "MONTO_PRE_VALORIZADO",
-    "UNIDAD_DE_NEGOCIO",
-    "SERVICIO_ELECTRICO",
-]
+    if registros.empty:
 
-columnas_faltantes = [
-    columna for columna in columnas_requeridas
-    if columna not in registros.columns
-]
+        st.warning(
+            "La hoja REGISTROS no contiene información."
+        )
 
-if columnas_faltantes:
-    st.error(
-        "Faltan columnas requeridas en la hoja REGISTROS: "
-        + ", ".join(columnas_faltantes)
-    )
-    st.stop()
+        st.stop()
 
 
-# ============================================================
-# PREPARAR REGISTROS
-# ============================================================
+    # ============================================================
+    # VALIDAR COLUMNAS MÍNIMAS
+    # ============================================================
 
-# FECHA_FIN (columna I) y MONTO_PRE_VALORIZADO (columna P).
-registros["_fecha"] = convertir_fecha(
-    registros["FECHA_FIN"]
-)
-
-registros["_pre"] = registros["MONTO_PRE_VALORIZADO"].apply(
-    convertir_importe
-)
-
-
-# ============================================================
-# HEADER
-# ============================================================
-
-render_html(
-    """
-    <div class="dashboard-header">
-        <div class="dashboard-title">
-            📊 Dashboard Control OMs
-        </div>
-
-        <div class="dashboard-subtitle">
-            Monitoreo de producción, capacidad y avance
-        </div>
-    </div>
-    """
-)
-
-
-# ============================================================
-# FILTROS
-# ============================================================
-
-render_html(
-    """
-    <div class="filter-box">
-    """
-)
-
-col1, col2 = st.columns(2)
-
-
-# ============================================================
-# PERIODOS
-# ============================================================
-
-periodos_df = registros[
-    registros["_fecha"].notna()
-].copy()
-
-periodos = (
-    periodos_df["_fecha"]
-    .dt.to_period("M")
-    .dropna()
-    .unique()
-)
-
-periodos = sorted(
-    periodos,
-    reverse=True
-)
-
-opciones_periodo = {
-    "Seleccione periodo...": None
-}
-
-for periodo in periodos:
-
-    fecha_periodo = periodo.to_timestamp()
-
-    texto = (
-        fecha_periodo
-        .strftime("%B %Y")
-        .capitalize()
-    )
-
-    clave = (
-        f"{fecha_periodo.year}-"
-        f"{fecha_periodo.month}"
-    )
-
-    opciones_periodo[texto] = clave
-
-
-with col1:
-
-    periodo_nombre = st.selectbox(
-        "📅 Periodo",
-        list(opciones_periodo.keys()),
-        index=0,
-        key="select_periodo"
-    )
-
-    periodo_seleccionado = (
-        opciones_periodo[
-            periodo_nombre
-        ]
-    )
-
-
-# ============================================================
-# ITEMS
-# ============================================================
-
-items = sorted(
-    registros["ITEM"]
-    .dropna()
-    .astype(str)
-    .str.strip()
-    .unique()
-)
-
-opciones_item = [
-    "Seleccione item..."
-] + items
-
-
-with col2:
-
-    item_seleccionado = st.selectbox(
-        "📋 Item",
-        opciones_item,
-        index=0,
-        key="select_item"
-    )
-
-
-render_html(
-    """
-    </div>
-    """
-)
-
-
-# ============================================================
-# FILTRAR
-# ============================================================
-
-data = registros.copy()
-
-
-if periodo_seleccionado:
-
-    anio, mes = map(
-        int,
-        periodo_seleccionado.split("-")
-    )
-
-    data = data[
-        (data["_fecha"].dt.year == anio)
-        &
-        (data["_fecha"].dt.month == mes)
+    columnas_requeridas = [
+        "ITEM",
+        "FECHA_FIN",
+        "MONTO_PRE_VALORIZADO",
+        "UNIDAD_DE_NEGOCIO",
+        "SERVICIO_ELECTRICO",
     ]
 
-
-if item_seleccionado != "Seleccione item...":
-
-    data = data[
-        data["ITEM"].astype(str).str.strip()
-        == item_seleccionado
+    columnas_faltantes = [
+        columna for columna in columnas_requeridas
+        if columna not in registros.columns
     ]
 
+    if columnas_faltantes:
+        st.error(
+            "Faltan columnas requeridas en la hoja REGISTROS: "
+            + ", ".join(columnas_faltantes)
+        )
+        st.stop()
 
-# ============================================================
-# STATS
-# ============================================================
 
-if (
-    periodo_seleccionado
-    and item_seleccionado != "Seleccione item..."
-):
+    # ============================================================
+    # PREPARAR REGISTROS
+    # ============================================================
 
-    anio, mes = map(
-        int,
-        periodo_seleccionado.split("-")
+    # FECHA_FIN (columna I) y MONTO_PRE_VALORIZADO (columna P).
+    registros["_fecha"] = convertir_fecha(
+        registros["FECHA_FIN"]
     )
 
-    dias_mes = dias_del_mes(
-        anio,
-        mes
+    registros["_pre"] = registros["MONTO_PRE_VALORIZADO"].apply(
+        convertir_importe
     )
 
-    dias_trans = dias_transcurridos(
-        anio,
-        mes
+
+    # ============================================================
+    # HEADER
+    # ============================================================
+
+    render_html(
+        """
+        <div class="dashboard-header">
+            <div class="dashboard-title">
+                📊 Dashboard Control OMs
+            </div>
+
+            <div class="dashboard-subtitle">
+                Monitoreo de producción, capacidad y avance
+            </div>
+        </div>
+        """
     )
 
-    ceco_item = ceco[
-        ceco["item"]
+
+    # ============================================================
+    # FILTROS
+    # ============================================================
+
+    render_html(
+        """
+        <div class="filter-box">
+        """
+    )
+
+    col1, col2 = st.columns(2)
+
+
+    # ============================================================
+    # PERIODOS
+    # ============================================================
+
+    periodos_df = registros[
+        registros["_fecha"].notna()
+    ].copy()
+
+    periodos = (
+        periodos_df["_fecha"]
+        .dt.to_period("M")
+        .dropna()
+        .unique()
+    )
+
+    periodos = sorted(
+        periodos,
+        reverse=True
+    )
+
+    opciones_periodo = {
+        "Seleccione periodo...": None
+    }
+
+    for periodo in periodos:
+
+        fecha_periodo = periodo.to_timestamp()
+
+        texto = (
+            fecha_periodo
+            .strftime("%B %Y")
+            .capitalize()
+        )
+
+        clave = (
+            f"{fecha_periodo.year}-"
+            f"{fecha_periodo.month}"
+        )
+
+        opciones_periodo[texto] = clave
+
+
+    with col1:
+
+        periodo_nombre = st.selectbox(
+            "📅 Periodo",
+            list(opciones_periodo.keys()),
+            index=0,
+            key="select_periodo"
+        )
+
+        periodo_seleccionado = (
+            opciones_periodo[
+                periodo_nombre
+            ]
+        )
+
+
+    # ============================================================
+    # ITEMS
+    # ============================================================
+
+    items = sorted(
+        registros["ITEM"]
+        .dropna()
         .astype(str)
         .str.strip()
-        ==
-        item_seleccionado
-    ]
-
-    costo_cuadrilla_total = (
-        ceco_item["costo"].sum()
+        .unique()
     )
 
-    costo_diario = (
-        costo_cuadrilla_total / dias_mes
-        if dias_mes
-        else 0
-    )
-
-    # Capacidad = (suma COSTO_CUADRILLA del ITEM / días del mes)
-    #             * días transcurridos del periodo.
-    cuadrilla = costo_diario * dias_trans
-
-    pre = data["_pre"].sum()
-
-    meta = METAS.get(
-        item_seleccionado,
-        0
-    )
-
-    avance = pre + cuadrilla
-
-    porcentaje = (
-        (avance / meta) * 100
-        if meta
-        else 0
-    )
-
-    color_clase = clase_avance(
-        porcentaje
-    )
-
-else:
-
-    pre = 0
-    cuadrilla = 0
-    meta = 0
-    avance = 0
-    porcentaje = 0
-    dias_mes = 0
-    dias_trans = 0
-    costo_diario = 0
-
-    color_clase = "avance-rojo"
+    opciones_item = [
+        "Seleccione item..."
+    ] + items
 
 
-# ============================================================
-# KPIs
-# ============================================================
+    with col2:
 
-k1, k2, k3, k4 = st.columns(4)
+        item_seleccionado = st.selectbox(
+            "📋 Item",
+            opciones_item,
+            index=0,
+            key="select_item"
+        )
 
-
-with k1:
 
     render_html(
-        f"""
-        <div class="kpi">
-
-            <div class="kpi-icon">
-                💰
-            </div>
-
-            <div class="kpi-title">
-                Pre Valorizado
-            </div>
-
-            <div class="kpi-value">
-                {
-                    formato_soles(pre)
-                    if item_seleccionado != "Seleccione item..."
-                    else "Seleccione ITEM"
-                }
-            </div>
-
+        """
         </div>
         """
     )
 
 
-with k2:
+    # ============================================================
+    # FILTRAR
+    # ============================================================
 
-    render_html(
-        f"""
-        <div class="kpi">
-
-            <div class="kpi-icon">
-                👥
-            </div>
-
-            <div class="kpi-title">
-                Costo Cuadrilla
-            </div>
-
-            <div class="kpi-value">
-                {
-                    formato_soles(cuadrilla)
-                    if item_seleccionado != "Seleccione item..."
-                    else "-"
-                }
-            </div>
-
-        </div>
-        """
-    )
+    data = registros.copy()
 
 
-with k3:
+    if periodo_seleccionado:
 
-    render_html(
-        f"""
-        <div class="kpi">
-
-            <div class="kpi-icon">
-                🎯
-            </div>
-
-            <div class="kpi-title">
-                Meta
-            </div>
-
-            <div class="kpi-value">
-                {
-                    formato_soles(meta)
-                    if item_seleccionado != "Seleccione item..."
-                    else "-"
-                }
-            </div>
-
-        </div>
-        """
-    )
-
-
-with k4:
-
-    render_html(
-        f"""
-        <div class="kpi {color_clase}">
-
-            <div class="kpi-icon">
-                📈
-            </div>
-
-            <div class="kpi-title">
-                % Avance
-            </div>
-
-            <div class="kpi-value">
-                {
-                    f"{porcentaje:.1f}%"
-                    if item_seleccionado != "Seleccione item..."
-                    else "-"
-                }
-            </div>
-
-        </div>
-        """
-    )
-
-
-# ============================================================
-# STATS
-# ============================================================
-
-if (
-    periodo_seleccionado
-    and item_seleccionado != "Seleccione item..."
-):
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    s1, s2, s3, s4 = st.columns(4)
-
-    with s1:
-
-        render_html(
-            f"""
-            <div class="stat-box">
-
-                <div class="stat-value">
-                    {formato_entero(len(data))}
-                </div>
-
-                <div class="stat-title">
-                    Total Registros
-                </div>
-
-            </div>
-            """
+        anio, mes = map(
+            int,
+            periodo_seleccionado.split("-")
         )
 
-    with s2:
+        data = data[
+            (data["_fecha"].dt.year == anio)
+            &
+            (data["_fecha"].dt.month == mes)
+        ]
 
-        render_html(
-            f"""
-            <div class="stat-box">
 
-                <div class="stat-value">
-                    {dias_trans}
-                </div>
+    if item_seleccionado != "Seleccione item...":
 
-                <div class="stat-title">
-                    Días Transcurridos
-                </div>
+        data = data[
+            data["ITEM"].astype(str).str.strip()
+            == item_seleccionado
+        ]
 
-            </div>
-            """
+
+    # ============================================================
+    # STATS
+    # ============================================================
+
+    if (
+        periodo_seleccionado
+        and item_seleccionado != "Seleccione item..."
+    ):
+
+        anio, mes = map(
+            int,
+            periodo_seleccionado.split("-")
         )
 
-    with s3:
-
-        render_html(
-            f"""
-            <div class="stat-box">
-
-                <div class="stat-value">
-                    {dias_mes}
-                </div>
-
-                <div class="stat-title">
-                    Días del Mes
-                </div>
-
-            </div>
-            """
+        dias_mes = dias_del_mes(
+            anio,
+            mes
         )
 
-    with s4:
-
-        render_html(
-            f"""
-            <div class="stat-box">
-
-                <div class="stat-value">
-                    {formato_soles(costo_diario)}
-                </div>
-
-                <div class="stat-title">
-                    Costo Diario
-                </div>
-
-            </div>
-            """
+        dias_trans = dias_transcurridos(
+            anio,
+            mes
         )
 
-
-# ============================================================
-# SI NO HAY ITEM
-# ============================================================
-
-if item_seleccionado == "Seleccione item...":
-
-    st.info(
-        "📌 Selecciona un periodo y un item para visualizar "
-        "los indicadores y gráficos."
-    )
-
-    st.stop()
-
-
-# ============================================================
-# PRODUCCIÓN VS CAPACIDAD
-# ============================================================
-
-render_html(
-    """
-    <div class="section-title">
-        ⚖️ Producción vs Capacidad
-    </div>
-
-    <div class="section-subtitle">
-        Comparación entre la producción valorizada y la
-        costo de cuadrilla prorrateado según los días transcurridos.
-    </div>
-    """
-)
-
-
-fig_comparativo = go.Figure()
-
-
-fig_comparativo.add_trace(
-    go.Bar(
-
-        x=[
-            "💰 Producción",
-            "👥 Capacidad"
-        ],
-
-        y=[
-            pre,
-            cuadrilla
-        ],
-
-        text=[
-            formato_soles(pre),
-            formato_soles(cuadrilla)
-        ],
-
-        textposition="outside",
-
-        textfont=dict(
-            color="#111827",
-            size=14
-        ),
-
-        marker=dict(
-            color=[
-                "#2563eb",
-                "#f59e0b"
-            ],
-
-            line=dict(
-            width=0
-            )
-        ),
-
-        hovertemplate=(
-            "<b>%{x}</b><br>"
-            "Monto: S/ %{y:,.2f}"
-            "<extra></extra>"
-        )
-    )
-)
-
-
-fig_comparativo.update_layout(
-
-    height=410,
-
-    # ========================================================
-    # FONDO FIJO CLARO
-    # No depende del modo oscuro del navegador
-    # ========================================================
-
-    paper_bgcolor="#ffffff",
-    plot_bgcolor="#ffffff",
-
-    margin=dict(
-        l=25,
-        r=25,
-        t=35,
-        b=55
-    ),
-
-    showlegend=False,
-
-    hovermode="closest",
-
-    # ========================================================
-    # BLOQUEAR SELECCIÓN / ZOOM / MOVIMIENTO
-    # ========================================================
-
-    clickmode="none",
-
-    dragmode=False,
-
-    uirevision="dashboard",
-
-    # ========================================================
-    # EJE Y
-    # ========================================================
-
-    yaxis=dict(
-
-        title=dict(
-            text="Monto (S/)",
-            font=dict(
-                color="#374151",
-                size=13
-            )
-        ),
-
-        tickfont=dict(
-            color="#374151",
-            size=11
-        ),
-
-        gridcolor="#e5e7eb",
-
-        zeroline=False,
-
-        fixedrange=True
-    ),
-
-    # ========================================================
-    # EJE X
-    # ========================================================
-
-    xaxis=dict(
-
-        showgrid=False,
-
-        tickfont=dict(
-            color="#111827",
-            size=12
-        ),
-
-        fixedrange=True
-    ),
-
-    # ========================================================
-    # FUENTE GENERAL DEL GRÁFICO
-    # ========================================================
-
-    font=dict(
-        family="Arial, sans-serif",
-        color="#111827"
-    )
-)
-
-
-st.plotly_chart(
-    fig_comparativo,
-
-    use_container_width=True,
-
-    key="grafico_produccion_capacidad",
-
-    config={
-        "displayModeBar": False,
-        "responsive": True,
-        "scrollZoom": False,
-        "doubleClick": False,
-        "editable": False
-    }
-)
-# ============================================================
-# DISTRIBUCIÓN POR UNIDAD
-# ============================================================
-
-render_html(
-    """
-    <div class="section-title">
-        🏢 Distribución por Unidad
-    </div>
-
-    <div class="section-subtitle">
-        Producción valorizada agrupada por unidad.
-    </div>
-    """
-)
-
-
-if not data.empty:
-
-    # --------------------------------------------------------
-    # AGRUPACIÓN UNIDAD
-    # --------------------------------------------------------
-
-    unidad_data = (
-        data.assign(
-            _unidad=data["UNIDAD_DE_NEGOCIO"]
-            .fillna("")
+        ceco_item = ceco[
+            ceco["item"]
             .astype(str)
             .str.strip()
-            .replace("", "(Sin unidad)")
+            ==
+            item_seleccionado
+        ]
+
+        costo_cuadrilla_total = (
+            ceco_item["costo"].sum()
         )
-        .groupby("_unidad")["_pre"]
-        .sum()
-        .sort_values(ascending=False)
+
+        costo_diario = (
+            costo_cuadrilla_total / dias_mes
+            if dias_mes
+            else 0
+        )
+
+        # Capacidad = (suma COSTO_CUADRILLA del ITEM / días del mes)
+        #             * días transcurridos del periodo.
+        cuadrilla = costo_diario * dias_trans
+
+        pre = data["_pre"].sum()
+
+        meta = METAS.get(
+            item_seleccionado,
+            0
+        )
+
+        avance = pre + cuadrilla
+
+        porcentaje = (
+            (avance / meta) * 100
+            if meta
+            else 0
+        )
+
+        color_clase = clase_avance(
+            porcentaje
+        )
+
+    else:
+
+        pre = 0
+        cuadrilla = 0
+        meta = 0
+        avance = 0
+        porcentaje = 0
+        dias_mes = 0
+        dias_trans = 0
+        costo_diario = 0
+
+        color_clase = "avance-rojo"
+
+
+    # ============================================================
+    # KPIs
+    # ============================================================
+
+    k1, k2, k3, k4 = st.columns(4)
+
+
+    with k1:
+
+        render_html(
+            f"""
+            <div class="kpi">
+
+                <div class="kpi-icon">
+                    💰
+                </div>
+
+                <div class="kpi-title">
+                    Pre Valorizado
+                </div>
+
+                <div class="kpi-value">
+                    {
+                        formato_soles(pre)
+                        if item_seleccionado != "Seleccione item..."
+                        else "Seleccione ITEM"
+                    }
+                </div>
+
+            </div>
+            """
+        )
+
+
+    with k2:
+
+        render_html(
+            f"""
+            <div class="kpi">
+
+                <div class="kpi-icon">
+                    👥
+                </div>
+
+                <div class="kpi-title">
+                    Costo Cuadrilla
+                </div>
+
+                <div class="kpi-value">
+                    {
+                        formato_soles(cuadrilla)
+                        if item_seleccionado != "Seleccione item..."
+                        else "-"
+                    }
+                </div>
+
+            </div>
+            """
+        )
+
+
+    with k3:
+
+        render_html(
+            f"""
+            <div class="kpi">
+
+                <div class="kpi-icon">
+                    🎯
+                </div>
+
+                <div class="kpi-title">
+                    Meta
+                </div>
+
+                <div class="kpi-value">
+                    {
+                        formato_soles(meta)
+                        if item_seleccionado != "Seleccione item..."
+                        else "-"
+                    }
+                </div>
+
+            </div>
+            """
+        )
+
+
+    with k4:
+
+        render_html(
+            f"""
+            <div class="kpi {color_clase}">
+
+                <div class="kpi-icon">
+                    📈
+                </div>
+
+                <div class="kpi-title">
+                    % Avance
+                </div>
+
+                <div class="kpi-value">
+                    {
+                        f"{porcentaje:.1f}%"
+                        if item_seleccionado != "Seleccione item..."
+                        else "-"
+                    }
+                </div>
+
+            </div>
+            """
+        )
+
+
+    # ============================================================
+    # STATS
+    # ============================================================
+
+    if (
+        periodo_seleccionado
+        and item_seleccionado != "Seleccione item..."
+    ):
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        s1, s2, s3, s4 = st.columns(4)
+
+        with s1:
+
+            render_html(
+                f"""
+                <div class="stat-box">
+
+                    <div class="stat-value">
+                        {formato_entero(len(data))}
+                    </div>
+
+                    <div class="stat-title">
+                        Total Registros
+                    </div>
+
+                </div>
+                """
+            )
+
+        with s2:
+
+            render_html(
+                f"""
+                <div class="stat-box">
+
+                    <div class="stat-value">
+                        {dias_trans}
+                    </div>
+
+                    <div class="stat-title">
+                        Días Transcurridos
+                    </div>
+
+                </div>
+                """
+            )
+
+        with s3:
+
+            render_html(
+                f"""
+                <div class="stat-box">
+
+                    <div class="stat-value">
+                        {dias_mes}
+                    </div>
+
+                    <div class="stat-title">
+                        Días del Mes
+                    </div>
+
+                </div>
+                """
+            )
+
+        with s4:
+
+            render_html(
+                f"""
+                <div class="stat-box">
+
+                    <div class="stat-value">
+                        {formato_soles(costo_diario)}
+                    </div>
+
+                    <div class="stat-title">
+                        Costo Diario
+                    </div>
+
+                </div>
+                """
+            )
+
+
+    # ============================================================
+    # SI NO HAY ITEM
+    # ============================================================
+
+    if item_seleccionado == "Seleccione item...":
+
+        st.info(
+            "📌 Selecciona un periodo y un item para visualizar "
+            "los indicadores y gráficos."
+        )
+
+        st.stop()
+
+
+    # ============================================================
+    # PRODUCCIÓN VS CAPACIDAD
+    # ============================================================
+
+    render_html(
+        """
+        <div class="section-title">
+            ⚖️ Producción vs Capacidad
+        </div>
+
+        <div class="section-subtitle">
+            Comparación entre la producción valorizada y la
+            costo de cuadrilla prorrateado según los días transcurridos.
+        </div>
+        """
     )
 
-    # --------------------------------------------------------
-    # COLORES DIFERENTES
-    # --------------------------------------------------------
 
-    colores_unidad_base = [
-        "#2563eb",
-        "#10b981",
-        "#f59e0b",
-        "#ef4444",
-        "#8b5cf6",
-        "#06b6d4",
-        "#ec4899",
-        "#84cc16",
-        "#f97316",
-        "#6366f1",
-        "#14b8a6",
-        "#e11d48"
-    ]
+    fig_comparativo = go.Figure()
 
-    colores_unidad = [
-        colores_unidad_base[
-            i % len(colores_unidad_base)
-        ]
-        for i in range(
-            len(unidad_data)
-        )
-    ]
 
-    # --------------------------------------------------------
-    # TEXTO VISIBLE
-    # --------------------------------------------------------
-
-    textos_unidad = [
-        formato_soles(valor)
-        for valor in unidad_data.values
-    ]
-
-    # --------------------------------------------------------
-    # GRÁFICO
-    # --------------------------------------------------------
-
-    fig_unidad = go.Figure()
-
-    fig_unidad.add_trace(
+    fig_comparativo.add_trace(
         go.Bar(
 
-            x=unidad_data.index,
+            x=[
+                "💰 Producción",
+                "👥 Capacidad"
+            ],
 
-            y=unidad_data.values,
+            y=[
+                pre,
+                cuadrilla
+            ],
 
-            text=textos_unidad,
+            text=[
+                formato_soles(pre),
+                formato_soles(cuadrilla)
+            ],
 
             textposition="outside",
 
             textfont=dict(
                 color="#111827",
-                size=13
+                size=14
             ),
 
             marker=dict(
-                color=colores_unidad,
+                color=[
+                    "#2563eb",
+                    "#f59e0b"
+                ],
 
                 line=dict(
-                    width=0
+                width=0
                 )
             ),
 
             hovertemplate=(
-                "<b>Unidad: %{x}</b><br>"
-                "Producción: S/ %{y:,.2f}"
+                "<b>%{x}</b><br>"
+                "Monto: S/ %{y:,.2f}"
                 "<extra></extra>"
             )
         )
     )
 
-    fig_unidad.update_layout(
 
-        # ----------------------------------------------------
-        # TAMAÑO
-        # ----------------------------------------------------
+    fig_comparativo.update_layout(
 
-        height=460,
+        height=410,
 
-        # ----------------------------------------------------
-        # FONDO FIJO BLANCO
+        # ========================================================
+        # FONDO FIJO CLARO
         # No depende del modo oscuro del navegador
-        # ----------------------------------------------------
+        # ========================================================
 
         paper_bgcolor="#ffffff",
-
         plot_bgcolor="#ffffff",
-
-        # ----------------------------------------------------
-        # MÁRGENES
-        # ----------------------------------------------------
 
         margin=dict(
             l=25,
             r=25,
-            t=45,
-            b=100
+            t=35,
+            b=55
         ),
 
         showlegend=False,
 
-        # ----------------------------------------------------
-        # HOVER
-        # ----------------------------------------------------
-
         hovermode="closest",
 
-        # ----------------------------------------------------
-        # BLOQUEAR SELECCIÓN
-        # ----------------------------------------------------
+        # ========================================================
+        # BLOQUEAR SELECCIÓN / ZOOM / MOVIMIENTO
+        # ========================================================
 
         clickmode="none",
 
-        # ----------------------------------------------------
-        # BLOQUEAR MOVIMIENTO / ZOOM
-        # ----------------------------------------------------
-
         dragmode=False,
-
-        # ----------------------------------------------------
-        # MANTENER ESTADO
-        # ----------------------------------------------------
 
         uirevision="dashboard",
 
-        # ----------------------------------------------------
-        # EJE X
-        # ----------------------------------------------------
-
-        xaxis=dict(
-
-            showgrid=False,
-
-            tickangle=-25,
-
-            tickfont=dict(
-                size=12,
-                color="#111827"
-            ),
-
-            title=dict(
-                text="UNIDAD",
-
-                font=dict(
-                    size=13,
-                    color="#374151"
-                )
-            ),
-
-            fixedrange=True
-        ),
-
-        # ----------------------------------------------------
+        # ========================================================
         # EJE Y
-        # ----------------------------------------------------
+        # ========================================================
 
         yaxis=dict(
 
             title=dict(
                 text="Monto (S/)",
-
                 font=dict(
-                    size=13,
-                    color="#374151"
+                    color="#374151",
+                    size=13
                 )
             ),
 
             tickfont=dict(
-                size=11,
-                color="#374151"
+                color="#374151",
+                size=11
             ),
 
             gridcolor="#e5e7eb",
@@ -1405,9 +1170,25 @@ if not data.empty:
             fixedrange=True
         ),
 
-        # ----------------------------------------------------
-        # FUENTE
-        # ----------------------------------------------------
+        # ========================================================
+        # EJE X
+        # ========================================================
+
+        xaxis=dict(
+
+            showgrid=False,
+
+            tickfont=dict(
+                color="#111827",
+                size=12
+            ),
+
+            fixedrange=True
+        ),
+
+        # ========================================================
+        # FUENTE GENERAL DEL GRÁFICO
+        # ========================================================
 
         font=dict(
             family="Arial, sans-serif",
@@ -1415,16 +1196,13 @@ if not data.empty:
         )
     )
 
-    # --------------------------------------------------------
-    # MOSTRAR GRÁFICO
-    # --------------------------------------------------------
 
     st.plotly_chart(
-        fig_unidad,
+        fig_comparativo,
 
         use_container_width=True,
 
-        key="grafico_distribucion_unidad",
+        key="grafico_produccion_capacidad",
 
         config={
             "displayModeBar": False,
@@ -1434,299 +1212,547 @@ if not data.empty:
             "editable": False
         }
     )
+    # ============================================================
+    # DISTRIBUCIÓN POR UNIDAD
+    # ============================================================
 
-else:
+    render_html(
+        """
+        <div class="section-title">
+            🏢 Distribución por Unidad
+        </div>
 
-    st.plotly_chart(
-        grafico_vacio(
-            "No existen registros"
-        ),
-        use_container_width=True,
-        key="grafico_vacio_unidad"
+        <div class="section-subtitle">
+            Producción valorizada agrupada por unidad.
+        </div>
+        """
     )
 
 
-# ============================================================
-# DISTRIBUCIÓN POR SERVICIO
-# ============================================================
+    if not data.empty:
 
-render_html(
-    """
-    <div class="section-title">
-        🛠️ Distribución por Servicio
-    </div>
+        # --------------------------------------------------------
+        # AGRUPACIÓN UNIDAD
+        # --------------------------------------------------------
 
-    <div class="section-subtitle">
-        Producción valorizada agrupada por servicio.
-    </div>
-    """
-)
-
-
-if not data.empty:
-
-    # --------------------------------------------------------
-    # AGRUPACIÓN SERVICIO
-    # --------------------------------------------------------
-
-    servicio_agrupado = data.assign(
-        _unidad=data["UNIDAD_DE_NEGOCIO"].fillna("").astype(str).str.strip()
-            .replace("", "(Sin unidad)"),
-        _servicio=data["SERVICIO_ELECTRICO"].fillna("").astype(str).str.strip()
-            .replace("", "(Sin servicio)"),
-    )
-
-    servicio_data = (
-        servicio_agrupado
-        .groupby(["_unidad", "_servicio"], dropna=False)["_pre"]
-        .sum()
-        .sort_values(ascending=False)
-    )
-
-    # Etiqueta única para identificar la unidad y el servicio en el gráfico.
-    servicio_data.index = [
-        f"{unidad} - {servicio}"
-        for unidad, servicio in servicio_data.index
-    ]
-
-    # --------------------------------------------------------
-    # COLORES DIFERENTES
-    # --------------------------------------------------------
-
-    colores_servicio_base = [
-        "#10b981",
-        "#3b82f6",
-        "#f59e0b",
-        "#ef4444",
-        "#8b5cf6",
-        "#06b6d4",
-        "#ec4899",
-        "#84cc16",
-        "#f97316",
-        "#6366f1",
-        "#14b8a6",
-        "#e11d48",
-        "#0ea5e9",
-        "#a855f7"
-    ]
-
-    colores_servicio = [
-        colores_servicio_base[
-            i % len(colores_servicio_base)
-        ]
-        for i in range(
-            len(servicio_data)
+        unidad_data = (
+            data.assign(
+                _unidad=data["UNIDAD_DE_NEGOCIO"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .replace("", "(Sin unidad)")
+            )
+            .groupby("_unidad")["_pre"]
+            .sum()
+            .sort_values(ascending=False)
         )
-    ]
 
-    # --------------------------------------------------------
-    # TEXTO VISIBLE
-    # --------------------------------------------------------
+        # --------------------------------------------------------
+        # COLORES DIFERENTES
+        # --------------------------------------------------------
 
-    textos_servicio = [
-        formato_soles(valor)
-        for valor in servicio_data.values
-    ]
+        colores_unidad_base = [
+            "#2563eb",
+            "#10b981",
+            "#f59e0b",
+            "#ef4444",
+            "#8b5cf6",
+            "#06b6d4",
+            "#ec4899",
+            "#84cc16",
+            "#f97316",
+            "#6366f1",
+            "#14b8a6",
+            "#e11d48"
+        ]
 
-    # --------------------------------------------------------
-    # GRÁFICO
-    # --------------------------------------------------------
+        colores_unidad = [
+            colores_unidad_base[
+                i % len(colores_unidad_base)
+            ]
+            for i in range(
+                len(unidad_data)
+            )
+        ]
 
-    fig_servicio = go.Figure()
+        # --------------------------------------------------------
+        # TEXTO VISIBLE
+        # --------------------------------------------------------
 
-    fig_servicio.add_trace(
-        go.Bar(
+        textos_unidad = [
+            formato_soles(valor)
+            for valor in unidad_data.values
+        ]
 
-            x=servicio_data.index,
+        # --------------------------------------------------------
+        # GRÁFICO
+        # --------------------------------------------------------
 
-            y=servicio_data.values,
+        fig_unidad = go.Figure()
 
-            text=textos_servicio,
+        fig_unidad.add_trace(
+            go.Bar(
 
-            textposition="outside",
+                x=unidad_data.index,
 
-            textfont=dict(
-                color="#111827",
-                size=13
-            ),
+                y=unidad_data.values,
 
-            marker=dict(
-                color=colores_servicio,
+                text=textos_unidad,
 
-                line=dict(
-                    width=0
+                textposition="outside",
+
+                textfont=dict(
+                    color="#111827",
+                    size=13
+                ),
+
+                marker=dict(
+                    color=colores_unidad,
+
+                    line=dict(
+                        width=0
+                    )
+                ),
+
+                hovertemplate=(
+                    "<b>Unidad: %{x}</b><br>"
+                    "Producción: S/ %{y:,.2f}"
+                    "<extra></extra>"
                 )
-            ),
-
-            hovertemplate=(
-                "<b>Servicio: %{x}</b><br>"
-                "Producción: S/ %{y:,.2f}"
-                "<extra></extra>"
             )
         )
-    )
 
-    fig_servicio.update_layout(
+        fig_unidad.update_layout(
 
-        # ----------------------------------------------------
-        # TAMAÑO
-        # ----------------------------------------------------
+            # ----------------------------------------------------
+            # TAMAÑO
+            # ----------------------------------------------------
 
-        height=480,
+            height=460,
 
-        # ----------------------------------------------------
-        # FONDO FIJO BLANCO
-        # ----------------------------------------------------
+            # ----------------------------------------------------
+            # FONDO FIJO BLANCO
+            # No depende del modo oscuro del navegador
+            # ----------------------------------------------------
 
-        paper_bgcolor="#ffffff",
+            paper_bgcolor="#ffffff",
 
-        plot_bgcolor="#ffffff",
+            plot_bgcolor="#ffffff",
 
-        # ----------------------------------------------------
-        # MÁRGENES
-        # ----------------------------------------------------
+            # ----------------------------------------------------
+            # MÁRGENES
+            # ----------------------------------------------------
 
-        margin=dict(
-            l=25,
-            r=25,
-            t=45,
-            b=120
-        ),
+            margin=dict(
+                l=25,
+                r=25,
+                t=45,
+                b=100
+            ),
 
-        showlegend=False,
+            showlegend=False,
 
-        # ----------------------------------------------------
-        # HOVER
-        # ----------------------------------------------------
+            # ----------------------------------------------------
+            # HOVER
+            # ----------------------------------------------------
 
-        hovermode="closest",
+            hovermode="closest",
 
-        # ----------------------------------------------------
-        # BLOQUEAR SELECCIÓN
-        # ----------------------------------------------------
+            # ----------------------------------------------------
+            # BLOQUEAR SELECCIÓN
+            # ----------------------------------------------------
 
-        clickmode="none",
+            clickmode="none",
 
-        # ----------------------------------------------------
-        # BLOQUEAR MOVIMIENTO / ZOOM
-        # ----------------------------------------------------
+            # ----------------------------------------------------
+            # BLOQUEAR MOVIMIENTO / ZOOM
+            # ----------------------------------------------------
 
-        dragmode=False,
+            dragmode=False,
 
-        # ----------------------------------------------------
-        # MANTENER ESTADO
-        # ----------------------------------------------------
+            # ----------------------------------------------------
+            # MANTENER ESTADO
+            # ----------------------------------------------------
 
-        uirevision="dashboard",
+            uirevision="dashboard",
 
-        # ----------------------------------------------------
-        # EJE X
-        # ----------------------------------------------------
+            # ----------------------------------------------------
+            # EJE X
+            # ----------------------------------------------------
 
-        xaxis=dict(
+            xaxis=dict(
 
-            showgrid=False,
+                showgrid=False,
 
-            tickangle=-35,
+                tickangle=-25,
 
-            tickfont=dict(
-                size=11,
+                tickfont=dict(
+                    size=12,
+                    color="#111827"
+                ),
+
+                title=dict(
+                    text="UNIDAD",
+
+                    font=dict(
+                        size=13,
+                        color="#374151"
+                    )
+                ),
+
+                fixedrange=True
+            ),
+
+            # ----------------------------------------------------
+            # EJE Y
+            # ----------------------------------------------------
+
+            yaxis=dict(
+
+                title=dict(
+                    text="Monto (S/)",
+
+                    font=dict(
+                        size=13,
+                        color="#374151"
+                    )
+                ),
+
+                tickfont=dict(
+                    size=11,
+                    color="#374151"
+                ),
+
+                gridcolor="#e5e7eb",
+
+                zeroline=False,
+
+                fixedrange=True
+            ),
+
+            # ----------------------------------------------------
+            # FUENTE
+            # ----------------------------------------------------
+
+            font=dict(
+                family="Arial, sans-serif",
                 color="#111827"
-            ),
-
-            title=dict(
-                text="SERVICIO",
-
-                font=dict(
-                    size=13,
-                    color="#374151"
-                )
-            ),
-
-            fixedrange=True
-        ),
-
-        # ----------------------------------------------------
-        # EJE Y
-        # ----------------------------------------------------
-
-        yaxis=dict(
-
-            title=dict(
-                text="Monto (S/)",
-
-                font=dict(
-                    size=13,
-                    color="#374151"
-                )
-            ),
-
-            tickfont=dict(
-                size=11,
-                color="#374151"
-            ),
-
-            gridcolor="#e5e7eb",
-
-            zeroline=False,
-
-            fixedrange=True
-        ),
-
-        # ----------------------------------------------------
-        # FUENTE
-        # ----------------------------------------------------
-
-        font=dict(
-            family="Arial, sans-serif",
-            color="#111827"
+            )
         )
+
+        # --------------------------------------------------------
+        # MOSTRAR GRÁFICO
+        # --------------------------------------------------------
+
+        st.plotly_chart(
+            fig_unidad,
+
+            use_container_width=True,
+
+            key="grafico_distribucion_unidad",
+
+            config={
+                "displayModeBar": False,
+                "responsive": True,
+                "scrollZoom": False,
+                "doubleClick": False,
+                "editable": False
+            }
+        )
+
+    else:
+
+        st.plotly_chart(
+            grafico_vacio(
+                "No existen registros"
+            ),
+            use_container_width=True,
+            key="grafico_vacio_unidad"
+        )
+
+
+    # ============================================================
+    # DISTRIBUCIÓN POR SERVICIO
+    # ============================================================
+
+    render_html(
+        """
+        <div class="section-title">
+            🛠️ Distribución por Servicio
+        </div>
+
+        <div class="section-subtitle">
+            Producción valorizada agrupada por servicio.
+        </div>
+        """
     )
 
-    # --------------------------------------------------------
-    # MOSTRAR GRÁFICO
-    # --------------------------------------------------------
 
-    st.plotly_chart(
-        fig_servicio,
+    if not data.empty:
 
-        use_container_width=True,
+        # --------------------------------------------------------
+        # AGRUPACIÓN SERVICIO
+        # --------------------------------------------------------
 
-        key="grafico_distribucion_servicio",
+        servicio_agrupado = data.assign(
+            _unidad=data["UNIDAD_DE_NEGOCIO"].fillna("").astype(str).str.strip()
+                .replace("", "(Sin unidad)"),
+            _servicio=data["SERVICIO_ELECTRICO"].fillna("").astype(str).str.strip()
+                .replace("", "(Sin servicio)"),
+        )
 
-        config={
-            "displayModeBar": False,
-            "responsive": True,
-            "scrollZoom": False,
-            "doubleClick": False,
-            "editable": False
-        }
+        servicio_data = (
+            servicio_agrupado
+            .groupby(["_unidad", "_servicio"], dropna=False)["_pre"]
+            .sum()
+            .sort_values(ascending=False)
+        )
+
+        # Etiqueta única para identificar la unidad y el servicio en el gráfico.
+        servicio_data.index = [
+            f"{unidad} - {servicio}"
+            for unidad, servicio in servicio_data.index
+        ]
+
+        # --------------------------------------------------------
+        # COLORES DIFERENTES
+        # --------------------------------------------------------
+
+        colores_servicio_base = [
+            "#10b981",
+            "#3b82f6",
+            "#f59e0b",
+            "#ef4444",
+            "#8b5cf6",
+            "#06b6d4",
+            "#ec4899",
+            "#84cc16",
+            "#f97316",
+            "#6366f1",
+            "#14b8a6",
+            "#e11d48",
+            "#0ea5e9",
+            "#a855f7"
+        ]
+
+        colores_servicio = [
+            colores_servicio_base[
+                i % len(colores_servicio_base)
+            ]
+            for i in range(
+                len(servicio_data)
+            )
+        ]
+
+        # --------------------------------------------------------
+        # TEXTO VISIBLE
+        # --------------------------------------------------------
+
+        textos_servicio = [
+            formato_soles(valor)
+            for valor in servicio_data.values
+        ]
+
+        # --------------------------------------------------------
+        # GRÁFICO
+        # --------------------------------------------------------
+
+        fig_servicio = go.Figure()
+
+        fig_servicio.add_trace(
+            go.Bar(
+
+                x=servicio_data.index,
+
+                y=servicio_data.values,
+
+                text=textos_servicio,
+
+                textposition="outside",
+
+                textfont=dict(
+                    color="#111827",
+                    size=13
+                ),
+
+                marker=dict(
+                    color=colores_servicio,
+
+                    line=dict(
+                        width=0
+                    )
+                ),
+
+                hovertemplate=(
+                    "<b>Servicio: %{x}</b><br>"
+                    "Producción: S/ %{y:,.2f}"
+                    "<extra></extra>"
+                )
+            )
+        )
+
+        fig_servicio.update_layout(
+
+            # ----------------------------------------------------
+            # TAMAÑO
+            # ----------------------------------------------------
+
+            height=480,
+
+            # ----------------------------------------------------
+            # FONDO FIJO BLANCO
+            # ----------------------------------------------------
+
+            paper_bgcolor="#ffffff",
+
+            plot_bgcolor="#ffffff",
+
+            # ----------------------------------------------------
+            # MÁRGENES
+            # ----------------------------------------------------
+
+            margin=dict(
+                l=25,
+                r=25,
+                t=45,
+                b=120
+            ),
+
+            showlegend=False,
+
+            # ----------------------------------------------------
+            # HOVER
+            # ----------------------------------------------------
+
+            hovermode="closest",
+
+            # ----------------------------------------------------
+            # BLOQUEAR SELECCIÓN
+            # ----------------------------------------------------
+
+            clickmode="none",
+
+            # ----------------------------------------------------
+            # BLOQUEAR MOVIMIENTO / ZOOM
+            # ----------------------------------------------------
+
+            dragmode=False,
+
+            # ----------------------------------------------------
+            # MANTENER ESTADO
+            # ----------------------------------------------------
+
+            uirevision="dashboard",
+
+            # ----------------------------------------------------
+            # EJE X
+            # ----------------------------------------------------
+
+            xaxis=dict(
+
+                showgrid=False,
+
+                tickangle=-35,
+
+                tickfont=dict(
+                    size=11,
+                    color="#111827"
+                ),
+
+                title=dict(
+                    text="SERVICIO",
+
+                    font=dict(
+                        size=13,
+                        color="#374151"
+                    )
+                ),
+
+                fixedrange=True
+            ),
+
+            # ----------------------------------------------------
+            # EJE Y
+            # ----------------------------------------------------
+
+            yaxis=dict(
+
+                title=dict(
+                    text="Monto (S/)",
+
+                    font=dict(
+                        size=13,
+                        color="#374151"
+                    )
+                ),
+
+                tickfont=dict(
+                    size=11,
+                    color="#374151"
+                ),
+
+                gridcolor="#e5e7eb",
+
+                zeroline=False,
+
+                fixedrange=True
+            ),
+
+            # ----------------------------------------------------
+            # FUENTE
+            # ----------------------------------------------------
+
+            font=dict(
+                family="Arial, sans-serif",
+                color="#111827"
+            )
+        )
+
+        # --------------------------------------------------------
+        # MOSTRAR GRÁFICO
+        # --------------------------------------------------------
+
+        st.plotly_chart(
+            fig_servicio,
+
+            use_container_width=True,
+
+            key="grafico_distribucion_servicio",
+
+            config={
+                "displayModeBar": False,
+                "responsive": True,
+                "scrollZoom": False,
+                "doubleClick": False,
+                "editable": False
+            }
+        )
+
+    else:
+
+        st.plotly_chart(
+            grafico_vacio(
+                "No existen registros"
+            ),
+            use_container_width=True,
+            key="grafico_vacio_servicio"
+        )
+    # ============================================================
+    # FOOTER
+    # ============================================================
+
+    render_html(
+        """
+        <div
+            style="
+                text-align:center;
+                margin-top:35px;
+                color:#9ca3af;
+                font-size:12px;
+            "
+        >
+            Dashboard Control OMs · Streamlit
+        </div>
+        """
     )
-
-else:
-
-    st.plotly_chart(
-        grafico_vacio(
-            "No existen registros"
-        ),
-        use_container_width=True,
-        key="grafico_vacio_servicio"
-    )
-# ============================================================
-# FOOTER
-# ============================================================
-
-render_html(
-    """
-    <div
-        style="
-            text-align:center;
-            margin-top:35px;
-            color:#9ca3af;
-            font-size:12px;
-        "
-    >
-        Dashboard Control OMs · Streamlit
-    </div>
-    """
-)
