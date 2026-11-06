@@ -14,6 +14,7 @@ seleccion = st.sidebar.radio(
         "📈 Reportes de Producción",
         "🚙 Reportes de km_perdidas",
         "🚚 Reportes de km_distribucion",
+        "📦 OMs Distribución",
         "🧩 Incidencia y Recurso",
     ],
     key="dashboard_seleccionado",
@@ -29,6 +30,9 @@ elif seleccion == "🚙 Reportes de km_perdidas":
 elif seleccion == "🚚 Reportes de km_distribucion":
     import distribucion
     distribucion.render()
+elif seleccion == "📦 OMs Distribución":
+    import oms_distribucion
+    oms_distribucion.render()
 else:
     import incidencia_recurso
     incidencia_recurso.render()
