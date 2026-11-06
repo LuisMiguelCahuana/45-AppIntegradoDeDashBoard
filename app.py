@@ -20,11 +20,7 @@ seleccion = st.sidebar.radio(
     key="dashboard_seleccionado",
 )
 st.sidebar.divider()
-
-if seleccion == "📈 Reportes de Producción":
-    import produccion
-    produccion.render()
-elif seleccion == "🚙 Reportes de km_perdidas":
+if seleccion == "🚙 Reportes de km_perdidas":
     import kilometraje
     kilometraje.render()
 elif seleccion == "🚚 Reportes de km_distribucion":
@@ -33,6 +29,9 @@ elif seleccion == "🚚 Reportes de km_distribucion":
 elif seleccion == "📦 OMs Distribución":
     import oms_distribucion
     oms_distribucion.render()
+elif seleccion == "📈 Reportes de Producción":
+    import produccion
+    produccion.render()
 else:
     import incidencia_recurso
     incidencia_recurso.render()
