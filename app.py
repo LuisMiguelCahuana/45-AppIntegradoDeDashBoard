@@ -11,10 +11,10 @@ st.sidebar.title("📊 Sistema de reportes")
 seleccion = st.sidebar.radio(
     "Seleccionar dashboard",
     [
-        "📈 Reportes de Producción",
         "🚙 Reportes de km_perdidas",
         "🚚 Reportes de km_distribucion",
         "📦 OMs Distribución",
+        "📈 Reportes de Producción",
         "🧩 Incidencia y Recurso",
     ],
     key="dashboard_seleccionado",
