@@ -42,214 +42,214 @@ METAS = {
 }
 
 def render():
-# ============================================================
-# ESTILOS
-# ============================================================
-
-render_html(
-    """
-    <style>
-
-        .stApp {
-            background:
-                radial-gradient(
-                    circle at top left,
-                    rgba(178, 13, 13, 0.05),
-                    transparent 35%
-                ),
-                linear-gradient(
-                    135deg,
-                    #f7f8fa 0%,
-                    #eef1f5 100%
-                );
-        }
-
-        .block-container {
-            max-width: 1450px;
-            padding-top: 1.5rem;
-            padding-bottom: 3rem;
-        }
-
-        #MainMenu {
-            visibility: hidden;
-        }
-
-        footer {
-            visibility: hidden;
-        }
-
-        header {
-            visibility: hidden;
-        }
-
-        .dashboard-header {
-            text-align: center;
-            margin-bottom: 28px;
-        }
-
-        .dashboard-title {
-            font-size: 42px;
-            font-weight: 800;
-            line-height: 1.1;
-            margin-bottom: 8px;
-
-            background: linear-gradient(
-                135deg,
-                #333333 0%,
-                #B20D0D 100%
-            );
-
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .dashboard-subtitle {
-            color: #6c757d;
-            font-size: 16px;
-            font-weight: 500;
-        }
-
-        .filter-box {
-            background: rgba(255, 255, 255, 0.90);
-            border: 1px solid #dee2e6;
-            border-radius: 20px;
-            padding: 18px 22px 10px 22px;
-            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
-            margin-bottom: 22px;
-        }
-
-        .kpi {
-            background: rgba(255, 255, 255, 0.95);
-            border: 1px solid #dee2e6;
-            border-radius: 20px;
-            padding: 20px 18px;
-            min-height: 150px;
-            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.055);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .kpi::before {
-            content: "";
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: #B20D0D;
-        }
-
-        .kpi-title {
-            color: #6c757d;
-            font-size: 13px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 12px;
-        }
-
-        .kpi-value {
-            color: #333333;
-            font-size: 29px;
-            font-weight: 800;
-            line-height: 1.15;
-            word-break: break-word;
-        }
-
-        .kpi-icon {
-            font-size: 25px;
-            margin-bottom: 8px;
-        }
-
-        .avance-rojo::before {
-            background: #B20D0D;
-        }
-
-        .avance-amarillo::before {
-            background: #f59e0b;
-        }
-
-        .avance-verde::before {
-            background: #10b981;
-        }
-
-        .stat-box {
-            background: rgba(255, 255, 255, 0.90);
-            border: 1px solid #dee2e6;
-            border-radius: 16px;
-            padding: 15px;
-            text-align: center;
-            box-shadow: 0 5px 18px rgba(0, 0, 0, 0.04);
-        }
-
-        .stat-value {
-            font-size: 21px;
-            font-weight: 800;
-            color: #333333;
-        }
-
-        .stat-title {
-            color: #6c757d;
-            font-size: 12px;
-            font-weight: 600;
-            margin-top: 3px;
-        }
-
-        .section-title {
-            font-size: 20px;
-            font-weight: 750;
-            color: #333333;
-            margin-top: 20px;
-            margin-bottom: 4px;
-        }
-
-        .section-subtitle {
-            color: #6c757d;
-            font-size: 13px;
-            margin-bottom: 8px;
-        }
-
-        div[data-baseweb="select"] > div {
-            border-radius: 12px;
-            border: 1px solid #dee2e6;
-        }
-
-        div[data-baseweb="select"] > div:focus-within {
-            border-color: #B20D0D;
-            box-shadow: 0 0 0 1px #B20D0D;
-        }
-
-        @media (max-width: 768px) {
-
+    # ============================================================
+    # ESTILOS
+    # ============================================================
+    
+    render_html(
+        """
+        <style>
+    
+            .stApp {
+                background:
+                    radial-gradient(
+                        circle at top left,
+                        rgba(178, 13, 13, 0.05),
+                        transparent 35%
+                    ),
+                    linear-gradient(
+                        135deg,
+                        #f7f8fa 0%,
+                        #eef1f5 100%
+                    );
+            }
+    
             .block-container {
-                padding: 12px 10px 30px 10px;
+                max-width: 1450px;
+                padding-top: 1.5rem;
+                padding-bottom: 3rem;
             }
-
+    
+            #MainMenu {
+                visibility: hidden;
+            }
+    
+            footer {
+                visibility: hidden;
+            }
+    
+            header {
+                visibility: hidden;
+            }
+    
+            .dashboard-header {
+                text-align: center;
+                margin-bottom: 28px;
+            }
+    
             .dashboard-title {
-                font-size: 29px;
+                font-size: 42px;
+                font-weight: 800;
+                line-height: 1.1;
+                margin-bottom: 8px;
+    
+                background: linear-gradient(
+                    135deg,
+                    #333333 0%,
+                    #B20D0D 100%
+                );
+    
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
             }
-
+    
             .dashboard-subtitle {
-                font-size: 13px;
+                color: #6c757d;
+                font-size: 16px;
+                font-weight: 500;
             }
-
+    
+            .filter-box {
+                background: rgba(255, 255, 255, 0.90);
+                border: 1px solid #dee2e6;
+                border-radius: 20px;
+                padding: 18px 22px 10px 22px;
+                box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+                margin-bottom: 22px;
+            }
+    
             .kpi {
-                min-height: 125px;
-                padding: 15px;
+                background: rgba(255, 255, 255, 0.95);
+                border: 1px solid #dee2e6;
+                border-radius: 20px;
+                padding: 20px 18px;
+                min-height: 150px;
+                box-shadow: 0 8px 28px rgba(0, 0, 0, 0.055);
+                position: relative;
+                overflow: hidden;
             }
-
+    
+            .kpi::before {
+                content: "";
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 4px;
+                background: #B20D0D;
+            }
+    
+            .kpi-title {
+                color: #6c757d;
+                font-size: 13px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 12px;
+            }
+    
             .kpi-value {
-                font-size: 22px;
+                color: #333333;
+                font-size: 29px;
+                font-weight: 800;
+                line-height: 1.15;
+                word-break: break-word;
             }
-
+    
+            .kpi-icon {
+                font-size: 25px;
+                margin-bottom: 8px;
+            }
+    
+            .avance-rojo::before {
+                background: #B20D0D;
+            }
+    
+            .avance-amarillo::before {
+                background: #f59e0b;
+            }
+    
+            .avance-verde::before {
+                background: #10b981;
+            }
+    
+            .stat-box {
+                background: rgba(255, 255, 255, 0.90);
+                border: 1px solid #dee2e6;
+                border-radius: 16px;
+                padding: 15px;
+                text-align: center;
+                box-shadow: 0 5px 18px rgba(0, 0, 0, 0.04);
+            }
+    
             .stat-value {
-                font-size: 18px;
+                font-size: 21px;
+                font-weight: 800;
+                color: #333333;
             }
-        }
-
-    </style>
-    """
-)
+    
+            .stat-title {
+                color: #6c757d;
+                font-size: 12px;
+                font-weight: 600;
+                margin-top: 3px;
+            }
+    
+            .section-title {
+                font-size: 20px;
+                font-weight: 750;
+                color: #333333;
+                margin-top: 20px;
+                margin-bottom: 4px;
+            }
+    
+            .section-subtitle {
+                color: #6c757d;
+                font-size: 13px;
+                margin-bottom: 8px;
+            }
+    
+            div[data-baseweb="select"] > div {
+                border-radius: 12px;
+                border: 1px solid #dee2e6;
+            }
+    
+            div[data-baseweb="select"] > div:focus-within {
+                border-color: #B20D0D;
+                box-shadow: 0 0 0 1px #B20D0D;
+            }
+    
+            @media (max-width: 768px) {
+    
+                .block-container {
+                    padding: 12px 10px 30px 10px;
+                }
+    
+                .dashboard-title {
+                    font-size: 29px;
+                }
+    
+                .dashboard-subtitle {
+                    font-size: 13px;
+                }
+    
+                .kpi {
+                    min-height: 125px;
+                    padding: 15px;
+                }
+    
+                .kpi-value {
+                    font-size: 22px;
+                }
+    
+                .stat-value {
+                    font-size: 18px;
+                }
+            }
+    
+        </style>
+        """
+    )
 
 
 # ============================================================
