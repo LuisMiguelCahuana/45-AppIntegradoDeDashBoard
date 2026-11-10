@@ -10,15 +10,13 @@ import gspread
 import plotly.express as px
 import plotly.graph_objects as go
 
-from sheets_cache import read_sheet, clear_sheet, CACHE_TTL
-
-
 # ============================================================
 # CONFIGURACIÓN GENERAL
 # ============================================================
 
 SPREADSHEET_ID = "1gNq2nuNGfogcgcq7gsIqmQ5BZmMuWiSgAbDLpytJTIY"
 HOJA_ORIGEN = "CONSOLIDADO_GENERAL"
+CACHE_TTL = 30 * 60
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
@@ -70,13 +68,17 @@ def leer_google_sheets_con_reintentos():
     Si Google mantiene el límite, reutiliza la última lectura correcta.
     """
     estado = estado_cache_sheets()
+    cliente = gspread.service_account_from_dict(
+        dict(st.secrets["gcp_service_account"]), scopes=SCOPES
+    )
     ultimo_error = None
 
     for espera in (0, 5, 12):
         if espera:
             time.sleep(espera)
         try:
-            valores = read_sheet(SPREADSHEET_ID, HOJA_ORIGEN)
+            hoja = cliente.open_by_key(SPREADSHEET_ID).worksheet(HOJA_ORIGEN)
+            valores = hoja.get_all_values()
             if valores:
                 estado["valores"] = valores
                 estado["actualizado"] = datetime.now()
@@ -88,6 +90,7 @@ def leer_google_sheets_con_reintentos():
 
     # No se interrumpe el dashboard si ya existe una lectura correcta.
     if estado.get("valores"):
+        st.warning("Google Sheets limitó la lectura. Se muestra la última copia disponible.")
         return estado["valores"]
 
     raise RuntimeError(
@@ -160,6 +163,11 @@ def cargar_datos():
     
     # Respetar orden de columnas
     df = df[COLUMNAS].copy()
+    df = df.replace(r"^\s*$", pd.NA, regex=True).dropna(how="all")
+
+    # Mantener las filas con campos de filtro vacíos.
+    columnas_filtro = ["unidad_negocio", "periodo", "proceso", "zona", "cuadrilla"]
+    df[columnas_filtro] = df[columnas_filtro].fillna("")
 
 
     if "fecha" in df.columns:
@@ -203,9 +211,7 @@ def cargar_datos():
         calculado = df["cantidad"] * df["costo_unitario"]
         df["costo_total"] = calculado.fillna(df["costo_total"]).fillna(0)
 
-    df = df.dropna(how="all").reset_index(drop=True)
-
-    return df
+    return df.reset_index(drop=True)
 
 
 def formatear_periodo(valor):
@@ -220,6 +226,10 @@ def formatear_periodo(valor):
             return texto
 
     return texto
+
+
+def etiqueta_filtro(valor):
+    return valor or "Sin dato"
 
 
 def etiqueta_costo(valor):
@@ -356,9 +366,11 @@ def mostrar_grafico(fig):
         },
     )
 def render():
-    # ============================================================
-    # CARGA DE DATOS
-    # ============================================================
+    st.sidebar.title("🔎 Filtros")
+    if st.sidebar.button("🔄 Refrescar datos", use_container_width=True):
+        cargar_datos.clear()
+
+    st.sidebar.caption("La lectura se actualiza cada 30 minutos o al refrescar.")
 
     try:
         df = cargar_datos()
@@ -392,7 +404,6 @@ def render():
     # BARRA LATERAL: FILTROS
     # ============================================================
 
-    st.sidebar.title("🔎 Filtros")
     # ------------------------------------------------------------
     # FILTRO POR UNIDAD DE NEGOCIO
     # ------------------------------------------------------------
@@ -402,7 +413,6 @@ def render():
         .dropna()
         .astype(str)
         .str.strip()
-        .loc[lambda x: x != ""]
         .unique()
         .tolist()
     )
@@ -411,6 +421,7 @@ def render():
         "🏢 UnidadNegocio",
         options=unidades_disponibles,
         default=unidades_disponibles,
+        format_func=etiqueta_filtro,
         key="filtro_unidad_negocio",
     )
 
@@ -497,6 +508,7 @@ def render():
         "⚙️ Proceso",
         options=procesos_disponibles,
         default=procesos_disponibles,
+        format_func=etiqueta_filtro,
     )
 
     zonas_disponibles = sorted(
@@ -511,6 +523,7 @@ def render():
         "🗺️ Zona",
         options=zonas_disponibles,
         default=zonas_disponibles,
+        format_func=etiqueta_filtro,
     )
 
     cuadrillas_disponibles = sorted(
@@ -525,6 +538,7 @@ def render():
         "👷 Cuadrilla / Técnico",
         options=cuadrillas_disponibles,
         default=cuadrillas_disponibles,
+        format_func=etiqueta_filtro,
     )
 
     # ------------------------------------------------------------
@@ -1047,21 +1061,4 @@ def render():
     descargar_excel(
         df_filtrado,
         f"detalle_produccion_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-    )
-
-
-    # ============================================================
-    # ACTUALIZAR DATOS
-    # ============================================================
-
-    st.sidebar.divider()
-
-    if st.sidebar.button("🔄 Refrescar datos", use_container_width=True):
-        clear_sheet(SPREADSHEET_ID, HOJA_ORIGEN)
-        cargar_datos.clear()
-        st.rerun()
-
-    st.sidebar.caption(
-        "Los datos se mantienen en caché durante 30 minutos "
-        "o puedes recargarlos con el botón 'Refrescar datos'."
     )
