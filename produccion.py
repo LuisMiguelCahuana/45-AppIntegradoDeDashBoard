@@ -618,48 +618,56 @@ def render():
     clave_unidad = normalizar_texto(unidad_seleccionada)
     meta_mensual = METAS_MENSUALES.get(clave_unidad)
 
+    fecha_actual = datetime.now()
+    dias_mes = calendar.monthrange(fecha_actual.year, fecha_actual.month)[1]
+    dia_transcurrido = fecha_actual.day
+
     if meta_mensual is None:
         st.warning(
             f"No se ha configurado una meta mensual fija para "
             f"{unidad_seleccionada}."
         )
         monto_esperado = 0.0
+        porcentaje_esperado = 0.0
         porcentaje_avance = 0.0
     else:
-        fecha_actual = datetime.now()
-        dias_mes = calendar.monthrange(fecha_actual.year, fecha_actual.month)[1]
-        dia_transcurrido = fecha_actual.day
         monto_esperado = (meta_mensual / dias_mes) * dia_transcurrido
 
-        # Producción real acumulada del mes para la unidad seleccionada.
-        inicio_mes = fecha_actual.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        fin_dia = fecha_actual.replace(hour=23, minute=59, second=59, microsecond=999999)
-        df_mes_actual = df[
-            df["_fecha_dt"].between(inicio_mes, fin_dia, inclusive="both")
-        ]
-        produccion_real_mes = df_mes_actual["costo_total"].sum(skipna=True)
-        porcentaje_avance = (
-            (produccion_real_mes / monto_esperado) * 100
-            if monto_esperado > 0 else 0.0
+        # Porcentaje esperado: monto esperado acumulado / meta mensual.
+        porcentaje_esperado = (
+            (monto_esperado / meta_mensual) * 100
+            if meta_mensual > 0 else 0.0
         )
 
-    meta_col, monto_dia_col, porcentaje_col = st.columns(3)
+        # Avance real: costo total del conjunto de datos filtrado / meta mensual.
+        costo_total_filtrado = df_filtrado["costo_total"].sum(skipna=True)
+        porcentaje_avance = (
+            (costo_total_filtrado / meta_mensual) * 100
+            if meta_mensual > 0 else 0.0
+        )
+
+    meta_col, monto_dia_col, porcentaje_esperado_col, porcentaje_avance_col = st.columns(4)
     meta_col.metric(
         "Meta mensual",
         f"S/ {meta_mensual:,.2f}" if meta_mensual is not None else "No configurada",
     )
     monto_dia_col.metric(
-        f"Monto esperado acumulado al día {datetime.now().day}",
+        f"Monto esperado acumulado al día {dia_transcurrido}",
         f"S/ {monto_esperado:,.2f}",
         help=(
             "Meta mensual dividida entre los días calendario del mes "
             "y multiplicada por el día transcurrido."
         ),
     )
-    porcentaje_col.metric(
-        "Avance respecto al monto esperado",
+    porcentaje_esperado_col.metric(
+        "% esperado de la meta",
+        f"{porcentaje_esperado:,.2f}%",
+        help="Monto esperado acumulado al día actual dividido entre la meta mensual.",
+    )
+    porcentaje_avance_col.metric(
+        "% de Avance",
         f"{porcentaje_avance:,.2f}%",
-        help="Producción real acumulada del mes dividida entre el monto esperado acumulado.",
+        help="Costo total de los registros filtrados dividido entre la meta mensual.",
     )
 
     st.divider()
