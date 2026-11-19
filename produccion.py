@@ -565,55 +565,155 @@ def render():
 
 
     # ============================================================
-    # ENCABEZADO E INDICADORES
+
+    # ============================================================
+    # INDICADORES MENSUALES DE PRODUCCIÓN
     # ============================================================
 
-    titulo_periodo = (
-        "Todos los periodos"
-        if periodo_filtro == "TODOS"
-        else formatear_periodo(periodo_filtro)
-    )
+    from datetime import date
+    from zoneinfo import ZoneInfo
+    import unicodedata
 
-    titulo_fecha = (
-        " - " + str(fecha_filtro)
-        if fecha_filtro is not None
-        else ""
-    )
+    METAS_MENSUALES = {
+        "huanuco": 222740.69,
+        "pasco": 99824.36,
+        "tingo maria": 100687.27,
+    }
+    DIAS_BASE_CALCULO = 30
 
-    st.title("📈 REPORTES DE PRODUCCIÓN")
+    def normalizar_texto(texto):
+        texto = unicodedata.normalize("NFKD", str(texto))
+        texto = "".join(c for c in texto if not unicodedata.combining(c))
+        return " ".join(texto.strip().lower().split())
 
-    if len(unidades_filtro) == len(unidades_disponibles):
-        titulo_unidad = "Todas las unidades de negocio"
-    elif unidades_filtro:
-        titulo_unidad = ", ".join(unidades_filtro)
+    def soles_dashboard(valor):
+        return (
+            f"S/ {valor:,.2f}"
+            .replace(",", "X").replace(".", ",").replace("X", ".")
+        )
+
+    # El periodo seleccionado determina el mes evaluado.
+    hoy_peru = datetime.now(ZoneInfo("America/Lima")).date()
+    if periodo_filtro == "TODOS":
+        anio_eval, mes_eval = hoy_peru.year, hoy_peru.month
     else:
+        digitos_periodo = re.sub(r"\D", "", str(periodo_filtro))
+        if len(digitos_periodo) >= 6:
+            anio_eval = int(digitos_periodo[:4])
+            mes_eval = int(digitos_periodo[4:6])
+        else:
+            anio_eval, mes_eval = hoy_peru.year, hoy_peru.month
+
+    # Para periodos anteriores se considera el mes completo.
+    if (anio_eval, mes_eval) < (hoy_peru.year, hoy_peru.month):
+        dias_trans = DIAS_BASE_CALCULO
+    elif (anio_eval, mes_eval) == (hoy_peru.year, hoy_peru.month):
+        dias_trans = min(hoy_peru.day, DIAS_BASE_CALCULO)
+    else:
+        dias_trans = 0
+
+    # La meta se suma cuando se selecciona más de una unidad.
+    unidades_normalizadas = [normalizar_texto(u) for u in unidades_filtro]
+    meta_mensual = sum(
+        meta for unidad, meta in METAS_MENSUALES.items()
+        if unidad in unidades_normalizadas
+    )
+    monto_diario = meta_mensual / DIAS_BASE_CALCULO
+    porcentaje_avance = (dias_trans / DIAS_BASE_CALCULO) * 100
+    monto_acumulado_referencial = monto_diario * dias_trans
+
+    if not unidades_filtro:
         titulo_unidad = "Sin unidad seleccionada"
+    elif len(unidades_filtro) == len(unidades_disponibles):
+        titulo_unidad = "Todas las unidades de negocio"
+    else:
+        titulo_unidad = ", ".join(unidades_filtro)
 
+    nombre_mes = calendar.month_name[mes_eval].capitalize()
+    st.title("📈 REPORTES DE PRODUCCIÓN")
     st.caption(
-        f"🏢 {titulo_unidad} | "
-        f"📅 {titulo_periodo}{titulo_fecha}"
+        f"🏢 {titulo_unidad} | 📅 {nombre_mes} {anio_eval}"
     )
 
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric("Registros", f"{len(df_filtrado):,}")
-
-    c2.metric(
-        "Cantidad total producida",
-        f"{df_filtrado['cantidad'].sum(skipna=True):,.0f}",
+    # Primera fila: indicadores principales.
+    st.markdown(
+        """
+        <style>
+        .prod-kpi {
+            background: rgba(255,255,255,.96);
+            border: 1px solid #dce1e7;
+            border-radius: 17px;
+            padding: 17px 19px 19px;
+            min-height: 132px;
+            box-shadow: 0 5px 18px rgba(0,0,0,.045);
+            border-top: 4px solid #b20d0d;
+        }
+        .prod-kpi.green { border-top-color: #10b981; }
+        .prod-kpi-label {
+            color: #64748b; font-size: 12px; font-weight: 750;
+            letter-spacing: .45px; text-transform: uppercase;
+            margin: 7px 0 13px;
+        }
+        .prod-kpi-value {
+            color: #252b35; font-size: clamp(21px, 2vw, 29px);
+            font-weight: 800; line-height: 1.15; overflow-wrap: anywhere;
+        }
+        .prod-stat {
+            background: rgba(255,255,255,.94);
+            border: 1px solid #dce1e7; border-radius: 14px;
+            padding: 13px 12px; text-align: center;
+            box-shadow: 0 4px 14px rgba(0,0,0,.035);
+        }
+        .prod-stat-value { color:#252b35; font-size:21px; font-weight:800; }
+        .prod-stat-label { color:#64748b; font-size:12px; margin-top:3px; }
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
 
-    c3.metric(
-        "Costo total",
-        f"S/ {df_filtrado['costo_total'].sum(skipna=True):,.2f}",
-    )
+    k1, k2, k3 = st.columns(3)
+    with k1:
+        st.markdown(
+            f'<div class="prod-kpi"><div class="prod-kpi-label">🎯 Meta mensual</div>'
+            f'<div class="prod-kpi-value">{soles_dashboard(meta_mensual)}</div></div>',
+            unsafe_allow_html=True,
+        )
+    with k2:
+        st.markdown(
+            f'<div class="prod-kpi"><div class="prod-kpi-label">💰 Monto por día</div>'
+            f'<div class="prod-kpi-value">{soles_dashboard(monto_diario)}</div></div>',
+            unsafe_allow_html=True,
+        )
+    with k3:
+        clase_porcentaje = "green" if porcentaje_avance >= 90 else ""
+        st.markdown(
+            f'<div class="prod-kpi {clase_porcentaje}"><div class="prod-kpi-label">📈 % avance</div>'
+            f'<div class="prod-kpi-value">{porcentaje_avance:.1f}%</div></div>',
+            unsafe_allow_html=True,
+        )
 
-    cuadrillas_activas = df_filtrado["cuadrilla"].nunique()
-    c4.metric("Cuadrillas activas", f"{cuadrillas_activas:,}")
+    # Segunda fila: datos de tiempo que sustentan el porcentaje.
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    s1, s2 = st.columns(2)
+    with s1:
+        st.markdown(
+            f'<div class="prod-stat"><div class="prod-stat-value">{dias_trans}</div>'
+            '<div class="prod-stat-label">Días transcurridos</div></div>',
+            unsafe_allow_html=True,
+        )
+    with s2:
+        st.markdown(
+            f'<div class="prod-stat"><div class="prod-stat-value">{DIAS_BASE_CALCULO}</div>'
+            '<div class="prod-stat-label">Días considerados en el cálculo</div></div>',
+            unsafe_allow_html=True,
+        )
 
+    if meta_mensual == 0:
+        st.warning(
+            "No se identificó una meta para la unidad seleccionada. "
+            "Verifica que el nombre sea Huánuco, Pasco o Tingo María."
+        )
 
-    # ============================================================
     # TODOS LOS REPORTES SE MUESTRAN EN LA MISMA PÁGINA
     # (El selector "Reporte que desea visualizar" fue eliminado)
     # ============================================================
