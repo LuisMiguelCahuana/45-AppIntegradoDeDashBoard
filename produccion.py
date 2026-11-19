@@ -2,7 +2,8 @@ import io
 import re
 import calendar
 import time
-from datetime import datetime
+from datetime import datetime, date
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -39,6 +40,14 @@ COLUMNAS = [
     "hoja_origen",
     "archivo_origen",
 ]
+
+# Metas mensuales fijas según el cuadro de cálculo entregado.
+METAS_MENSUALES = {
+    "HUANUCO": 222740.69,
+    "PASCO": 99824.36,
+    "TINGO MARIA": 100687.27,
+}
+DIAS_BASE_CALCULO = 30
 
 ESTILO_ETIQUETA_COSTO = dict(
     size=11,
@@ -236,6 +245,116 @@ def etiqueta_costo(valor):
     if pd.isna(valor):
         return ""
     return f"S/ {float(valor):,.2f}"
+
+
+def normalizar_unidad(valor):
+    texto = str(valor or "").strip().upper()
+    texto = re.sub(r"\\s+", " ", texto)
+    return texto
+
+
+def meta_unidad(valor):
+    """Obtiene la meta fija a partir del nombre de la unidad de negocio."""
+    nombre = normalizar_unidad(valor)
+    if "HUANUCO" in nombre or "HUÁNUCO" in nombre:
+        return METAS_MENSUALES["HUANUCO"]
+    if "PASCO" in nombre:
+        return METAS_MENSUALES["PASCO"]
+    if "TINGO MARIA" in nombre or "TINGO MARÍA" in nombre:
+        return METAS_MENSUALES["TINGO MARIA"]
+    return 0.0
+
+
+def obtener_dias_periodo(periodo):
+    """Devuelve días transcurridos y días calendario del periodo seleccionado."""
+    hoy = datetime.now(ZoneInfo("America/Lima")).date()
+    texto = str(periodo).strip()
+
+    if re.fullmatch(r"\\d{6}", texto):
+        anio, mes = int(texto[:4]), int(texto[4:6])
+    else:
+        fecha = pd.to_datetime(texto, errors="coerce", dayfirst=True)
+        if pd.isna(fecha):
+            return 0, 0
+        anio, mes = int(fecha.year), int(fecha.month)
+
+    total = calendar.monthrange(anio, mes)[1]
+    if (anio, mes) > (hoy.year, hoy.month):
+        transcurridos = 0
+    elif (anio, mes) < (hoy.year, hoy.month):
+        transcurridos = total
+    else:
+        transcurridos = hoy.day
+
+    return transcurridos, total
+
+
+def formato_soles_dashboard(valor):
+    return f"S/ {float(valor):,.2f}"
+
+
+def mostrar_tarjetas_resumen(meta, monto_diario, porcentaje,
+                             dias_trans, dias_mes):
+    """Muestra únicamente los indicadores de meta y avance mensual."""
+    clase_avance = (
+        "avance-rojo" if porcentaje < 70
+        else "avance-amarillo" if porcentaje < 90
+        else "avance-verde"
+    )
+    st.markdown(
+        """
+        <style>
+        .prod-kpi-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:12px 0 28px}
+        .prod-kpi{background:rgba(255,255,255,.96);border:1px solid #d9dee7;border-radius:20px;
+          padding:20px 18px;min-height:150px;box-shadow:0 8px 28px rgba(0,0,0,.055);
+          position:relative;overflow:hidden}
+        .prod-kpi:before{content:"";position:absolute;top:0;left:0;right:0;height:4px;background:#b20d0d}
+        .prod-kpi.green:before{background:#10b981}
+        .prod-kpi.amber:before{background:#f59e0b}
+        .prod-icon{font-size:24px;margin-bottom:10px}
+        .prod-label{color:#6c757d;font-size:12px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px}
+        .prod-value{color:#292929;font-size:27px;font-weight:800;line-height:1.2;overflow-wrap:anywhere}
+        .prod-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:0 0 22px}
+        .prod-stat{background:rgba(255,255,255,.92);border:1px solid #d9dee7;border-radius:16px;
+          padding:15px;text-align:center;box-shadow:0 5px 18px rgba(0,0,0,.04)}
+        .prod-stat-value{font-size:21px;font-weight:800;color:#333}
+        .prod-stat-label{color:#6c757d;font-size:12px;font-weight:600;margin-top:4px}
+        @media(max-width:850px){.prod-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+        @media(max-width:480px){.prod-kpi-grid,.prod-stats{grid-template-columns:1fr}.prod-kpi{min-height:unset}.prod-value{font-size:23px}}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    html = f"""
+    <div class="prod-kpi-grid">
+      <div class="prod-kpi">
+        <div class="prod-icon">🎯</div>
+        <div class="prod-label">Meta mensual</div>
+        <div class="prod-value">{formato_soles_dashboard(meta)}</div>
+      </div>
+      <div class="prod-kpi">
+        <div class="prod-icon">💰</div>
+        <div class="prod-label">Monto por día</div>
+        <div class="prod-value">{formato_soles_dashboard(monto_diario)}</div>
+      </div>
+      <div class="prod-kpi { 'green' if porcentaje >= 90 else 'amber' if porcentaje >= 70 else ''}">
+        <div class="prod-icon">📈</div>
+        <div class="prod-label">% Avance mensual</div>
+        <div class="prod-value">{porcentaje:.1f}%</div>
+      </div>
+    </div>
+    <div class="prod-stats">
+      <div class="prod-stat">
+        <div class="prod-stat-value">{dias_trans}</div>
+        <div class="prod-stat-label">Días transcurridos</div>
+      </div>
+      <div class="prod-stat">
+        <div class="prod-stat-value">{dias_mes}</div>
+        <div class="prod-stat-label">Días calendario del mes</div>
+      </div>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def descargar_excel(df, nombre):
@@ -446,17 +565,41 @@ def render():
         .unique()
     )
 
+    def clave_orden_periodo(valor):
+        texto = str(valor).strip()
+        if re.fullmatch(r"\\d{6}", texto):
+            return (int(texto[:4]), int(texto[4:6]), texto)
+        fecha = pd.to_datetime(texto, errors="coerce", dayfirst=True)
+        if pd.notna(fecha):
+            return (int(fecha.year), int(fecha.month), texto)
+        return (0, 0, texto)
+
     periodos_ordenados = sorted(
         periodos_disponibles,
-        key=lambda p: (formatear_periodo(p), p),
+        key=clave_orden_periodo,
     )
 
     todos_los_periodos = ["TODOS"] + periodos_ordenados
 
+    # Por defecto se abre el periodo más reciente disponible, porque las metas son mensuales.
+    hoy_local = datetime.now(ZoneInfo("America/Lima"))
+    periodo_actual = f"{hoy_local.year}{hoy_local.month:02d}"
+    if periodo_actual in periodos_ordenados:
+        periodo_default = periodo_actual
+    elif periodos_ordenados:
+        periodo_default = periodos_ordenados[-1]
+    else:
+        periodo_default = "TODOS"
+
+    indice_periodo_default = (
+        todos_los_periodos.index(periodo_default)
+        if periodo_default in todos_los_periodos else 0
+    )
+
     periodo_filtro = st.sidebar.selectbox(
         "📅 Periodo (Año y mes)",
         options=todos_los_periodos,
-        index=0,
+        index=indice_periodo_default,
     )
 
     # ------------------------------------------------------------
@@ -595,23 +738,55 @@ def render():
     )
 
 
-    c1, c2, c3, c4 = st.columns(4)
+    # ============================================================
+    # INDICADORES DE META Y AVANCE MENSUAL
+    # ============================================================
 
-    c1.metric("Registros", f"{len(df_filtrado):,}")
-
-    c2.metric(
-        "Cantidad total producida",
-        f"{df_filtrado['cantidad'].sum(skipna=True):,.0f}",
+    # Si el filtro está en TODOS, los indicadores toman el último periodo disponible.
+    # Los reportes inferiores conservan el filtro TODOS.
+    periodo_kpi = (
+        periodo_filtro if periodo_filtro != "TODOS"
+        else (periodos_ordenados[-1] if periodos_ordenados else "TODOS")
     )
 
-    c3.metric(
-        "Costo total",
-        f"S/ {df_filtrado['costo_total'].sum(skipna=True):,.2f}",
+    meta_mensual = sum(meta_unidad(unidad) for unidad in unidades_filtro)
+    unidades_sin_meta = [u for u in unidades_filtro if meta_unidad(u) == 0]
+    if unidades_sin_meta:
+        st.warning(
+            "No se encontró una meta configurada para: "
+            + ", ".join(unidades_sin_meta)
+            + ". Verifica el nombre de la unidad de negocio."
+        )
+
+    if periodo_kpi != "TODOS":
+        dias_transcurridos_kpi, dias_mes_kpi = obtener_dias_periodo(periodo_kpi)
+    else:
+        dias_transcurridos_kpi, dias_mes_kpi = 0, 0
+
+    # Fórmulas idénticas a las del Excel:
+    # Monto diario = Meta mensual / 30.
+    # Monto acumulado = Monto diario * días transcurridos (máximo 30).
+    # Porcentaje = Monto acumulado / Meta mensual * 100.
+    monto_diario = meta_mensual / DIAS_BASE_CALCULO if meta_mensual else 0.0
+    dias_para_calculo = min(dias_transcurridos_kpi, DIAS_BASE_CALCULO)
+    monto_acumulado_calculo = monto_diario * dias_para_calculo
+    porcentaje_avance = (
+        (monto_acumulado_calculo / meta_mensual) * 100
+        if meta_mensual else 0.0
     )
 
-    cuadrillas_activas = df_filtrado["cuadrilla"].nunique()
-    c4.metric("Cuadrillas activas", f"{cuadrillas_activas:,}")
+    st.caption(
+        f"Indicadores mensuales: {formatear_periodo(periodo_kpi)} "
+        "| Cálculo conforme al Excel: meta mensual / 30 días."
+    )
 
+    mostrar_tarjetas_resumen(
+        meta=meta_mensual,
+        monto_diario=monto_diario,
+        porcentaje=porcentaje_avance,
+        dias_trans=dias_transcurridos_kpi,
+        dias_mes=dias_mes_kpi,
+    )
 
     # ============================================================
     # TODOS LOS REPORTES SE MUESTRAN EN LA MISMA PÁGINA
