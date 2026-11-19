@@ -652,7 +652,7 @@ def render():
         f"S/ {meta_mensual:,.2f}" if meta_mensual is not None else "No configurada",
     )
     monto_dia_col.metric(
-        f"Monto esperado acumulado al día {dia_transcurrido}",
+        f"Monto acumulado al día {dia_transcurrido}",
         f"S/ {monto_esperado:,.2f}",
         help=(
             "Meta mensual dividida entre los días calendario del mes "
