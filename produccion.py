@@ -18,6 +18,27 @@ SPREADSHEET_ID = "1gNq2nuNGfogcgcq7gsIqmQ5BZmMuWiSgAbDLpytJTIY"
 HOJA_ORIGEN = "CONSOLIDADO_GENERAL"
 CACHE_TTL = 30 * 60
 
+
+# Metas mensuales fijas por unidad de negocio.
+METAS_MENSUALES = {
+    "huanuco": 222740.69,
+    "pasco": 99824.36,
+    "tingo maria": 100687.27,
+}
+
+
+def normalizar_texto(valor):
+    """Normaliza tildes, espacios y mayúsculas para comparar unidades."""
+    texto = str(valor).strip().lower()
+    return (
+        texto.replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+        .replace("ñ", "n")
+    )
+
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
@@ -417,20 +438,21 @@ def render():
         .tolist()
     )
 
-    unidades_filtro = st.sidebar.multiselect(
+    unidad_seleccionada = st.sidebar.selectbox(
         "🏢 UnidadNegocio",
-        options=unidades_disponibles,
-        default=unidades_disponibles,
-        format_func=etiqueta_filtro,
+        options=["Seleccione"] + unidades_disponibles,
+        index=0,
         key="filtro_unidad_negocio",
     )
 
-    # Filtrar los datos según las unidades seleccionadas
+    # No mostrar reportes hasta que se seleccione una sola unidad.
+    if unidad_seleccionada == "Seleccione":
+        st.info("Seleccione una unidad de negocio para visualizar la producción.")
+        st.stop()
+
+    # Filtrar los datos únicamente por la unidad seleccionada.
     df = df[
-        df["unidad_negocio"]
-        .astype(str)
-        .str.strip()
-        .isin(unidades_filtro)
+        df["unidad_negocio"].astype(str).str.strip() == unidad_seleccionada
     ].copy()
 
     # ------------------------------------------------------------
@@ -582,18 +604,65 @@ def render():
 
     st.title("📈 REPORTES DE PRODUCCIÓN")
 
-    if len(unidades_filtro) == len(unidades_disponibles):
-        titulo_unidad = "Todas las unidades de negocio"
-    elif unidades_filtro:
-        titulo_unidad = ", ".join(unidades_filtro)
-    else:
-        titulo_unidad = "Sin unidad seleccionada"
+    titulo_unidad = unidad_seleccionada
 
     st.caption(
         f"🏢 {titulo_unidad} | "
         f"📅 {titulo_periodo}{titulo_fecha}"
     )
 
+    # ============================================================
+    # FILA INDEPENDIENTE: META MENSUAL Y AVANCE ESPERADO
+    # ============================================================
+
+    clave_unidad = normalizar_texto(unidad_seleccionada)
+    meta_mensual = METAS_MENSUALES.get(clave_unidad)
+
+    if meta_mensual is None:
+        st.warning(
+            f"No se ha configurado una meta mensual fija para "
+            f"{unidad_seleccionada}."
+        )
+        monto_esperado = 0.0
+        porcentaje_avance = 0.0
+    else:
+        fecha_actual = datetime.now()
+        dias_mes = calendar.monthrange(fecha_actual.year, fecha_actual.month)[1]
+        dia_transcurrido = fecha_actual.day
+        monto_esperado = (meta_mensual / dias_mes) * dia_transcurrido
+
+        # Producción real acumulada del mes para la unidad seleccionada.
+        inicio_mes = fecha_actual.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        fin_dia = fecha_actual.replace(hour=23, minute=59, second=59, microsecond=999999)
+        df_mes_actual = df[
+            df["_fecha_dt"].between(inicio_mes, fin_dia, inclusive="both")
+        ]
+        produccion_real_mes = df_mes_actual["costo_total"].sum(skipna=True)
+        porcentaje_avance = (
+            (produccion_real_mes / monto_esperado) * 100
+            if monto_esperado > 0 else 0.0
+        )
+
+    meta_col, monto_dia_col, porcentaje_col = st.columns(3)
+    meta_col.metric(
+        "Meta mensual",
+        f"S/ {meta_mensual:,.2f}" if meta_mensual is not None else "No configurada",
+    )
+    monto_dia_col.metric(
+        f"Monto esperado acumulado al día {datetime.now().day}",
+        f"S/ {monto_esperado:,.2f}",
+        help=(
+            "Meta mensual dividida entre los días calendario del mes "
+            "y multiplicada por el día transcurrido."
+        ),
+    )
+    porcentaje_col.metric(
+        "Avance respecto al monto esperado",
+        f"{porcentaje_avance:,.2f}%",
+        help="Producción real acumulada del mes dividida entre el monto esperado acumulado.",
+    )
+
+    st.divider()
 
     c1, c2, c3, c4 = st.columns(4)
 
