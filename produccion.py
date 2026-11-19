@@ -473,25 +473,32 @@ def render():
         key=lambda p: (formatear_periodo(p), p),
     )
 
-    todos_los_periodos = ["TODOS"] + periodos_ordenados
+    opciones_periodo = ["Seleccione"] + periodos_ordenados
 
     periodo_filtro = st.sidebar.selectbox(
         "📅 Periodo (Año y mes)",
-        options=todos_los_periodos,
+        options=opciones_periodo,
         index=0,
+        format_func=lambda valor: (
+            "Seleccione" if valor == "Seleccione"
+            else formatear_periodo(valor)
+        ),
+        key="filtro_periodo",
     )
+
+    # No mostrar reportes hasta que se seleccione un único periodo.
+    if periodo_filtro == "Seleccione":
+        st.info("Seleccione un periodo para visualizar la producción.")
+        st.stop()
 
     # ------------------------------------------------------------
     # 2. FILTRO POR FECHA: VALORES ÚNICOS SEGÚN EL PERIODO
     # ------------------------------------------------------------
 
-    df_periodo = df.copy()
-
-    if periodo_filtro != "TODOS":
-        df_periodo = df_periodo[
-            df_periodo["periodo"].astype(str).str.strip()
-            == str(periodo_filtro).strip()
-        ]
+    df_periodo = df[
+        df["periodo"].astype(str).str.strip()
+        == str(periodo_filtro).strip()
+    ].copy()
 
     fechas_disponibles = (
         df_periodo["fecha"]
@@ -590,11 +597,7 @@ def render():
     # ENCABEZADO E INDICADORES
     # ============================================================
 
-    titulo_periodo = (
-        "Todos los periodos"
-        if periodo_filtro == "TODOS"
-        else formatear_periodo(periodo_filtro)
-    )
+    titulo_periodo = formatear_periodo(periodo_filtro)
 
     titulo_fecha = (
         " - " + str(fecha_filtro)
