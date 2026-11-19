@@ -622,8 +622,51 @@ def render():
     meta_mensual = METAS_MENSUALES.get(clave_unidad)
 
     fecha_actual = datetime.now()
-    dias_mes = calendar.monthrange(fecha_actual.year, fecha_actual.month)[1]
-    dia_transcurrido = fecha_actual.day
+
+    # Determinar el año y mes seleccionados. Se priorizan las fechas reales
+    # asociadas al periodo y, si no existen, se interpreta el código YYYYMM.
+    fechas_periodo_validas = df_periodo["_fecha_dt"].dropna()
+    if not fechas_periodo_validas.empty:
+        periodos_calendario = fechas_periodo_validas.dt.to_period("M").unique()
+    else:
+        periodos_calendario = []
+
+    if len(periodos_calendario) == 1:
+        anio_periodo = int(periodos_calendario[0].year)
+        mes_periodo = int(periodos_calendario[0].month)
+    elif re.fullmatch(r"\d{6}", str(periodo_filtro).strip()):
+        anio_periodo = int(str(periodo_filtro).strip()[:4])
+        mes_periodo = int(str(periodo_filtro).strip()[4:6])
+    else:
+        # Último recurso: extraer año y mes de un periodo expresado como texto.
+        fecha_periodo = pd.to_datetime(
+            str(periodo_filtro), errors="coerce", dayfirst=True
+        )
+        if pd.isna(fecha_periodo):
+            st.error(
+                f"No se pudo identificar el mes y año del periodo "
+                f"seleccionado: {periodo_filtro}."
+            )
+            st.stop()
+        anio_periodo = int(fecha_periodo.year)
+        mes_periodo = int(fecha_periodo.month)
+
+    dias_mes = calendar.monthrange(anio_periodo, mes_periodo)[1]
+    periodo_seleccionado = (anio_periodo, mes_periodo)
+    periodo_actual = (fecha_actual.year, fecha_actual.month)
+
+    if periodo_seleccionado < periodo_actual:
+        # Mes ya concluido: considerar todos sus días calendario.
+        dia_transcurrido = dias_mes
+        texto_corte_periodo = "al cierre del mes"
+    elif periodo_seleccionado == periodo_actual:
+        # Mes en curso: considerar únicamente el día actual.
+        dia_transcurrido = fecha_actual.day
+        texto_corte_periodo = f"al día {dia_transcurrido}"
+    else:
+        # Periodo futuro: todavía no hay días transcurridos.
+        dia_transcurrido = 0
+        texto_corte_periodo = "antes del inicio del mes"
 
     if meta_mensual is None:
         st.warning(
@@ -634,7 +677,10 @@ def render():
         porcentaje_esperado = 0.0
         porcentaje_avance = 0.0
     else:
-        monto_esperado = (meta_mensual / dias_mes) * dia_transcurrido
+        monto_esperado = (
+            (meta_mensual / dias_mes) * dia_transcurrido
+            if dias_mes > 0 else 0.0
+        )
 
         # Porcentaje esperado: monto esperado acumulado / meta mensual.
         porcentaje_esperado = (
@@ -655,7 +701,7 @@ def render():
         f"S/ {meta_mensual:,.2f}" if meta_mensual is not None else "No configurada",
     )
     monto_dia_col.metric(
-        f"Monto acumulado al día {dia_transcurrido}",
+        f"Monto esperado {texto_corte_periodo}",
         f"S/ {monto_esperado:,.2f}",
         help=(
             "Meta mensual dividida entre los días calendario del mes "
